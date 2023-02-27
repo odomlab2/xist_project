@@ -45,3 +45,9 @@ plot(clustering_cells)
 ComplexHeatmap::Heatmap(data_here[rownames(genes_check), clustering_cells$order], cluster_rows = F, cluster_columns = F)
 ComplexHeatmap::Heatmap(data_here[rownames(genes_check), clustering_cells$order])
 
+data.frame(
+  mean_escape = colMeans(apply(data, 2, as.numeric), na.rm = T), 
+  stage = factor(stage, levels = c("Oo", "2C", "4C", "8C", "16C", "32C", "64C"))
+) %>%
+  ggplot(aes(x = stage, y = mean_escape)) + ggbeeswarm::geom_quasirandom()
+

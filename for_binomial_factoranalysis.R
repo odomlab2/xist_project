@@ -61,7 +61,7 @@ data.frame(
 
 
 ## write data
-write.csv(counts_total_lognorm_hvg, "./ProcessedData/total_expression_bulk.csv")
+write.csv(counts(data)[rownames(counts_total_lognorm_hvg), ], "./ProcessedData/total_expression_bulk_new.csv")
 
 write.csv(counts_reference_hvg, "./ProcessedData/reference_expression_bulk.csv")
 write.csv(counts_alternative_hvg, "./ProcessedData/alternative_expression_bulk.csv")
