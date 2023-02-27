@@ -8,7 +8,7 @@ editor_options:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "~/Desktop/Projects/XChromosome_Antonia/")
+knitr::opts_knit$set(root.dir = paste0(dirname(rstudioapi::getSourceEditorContext()$path), "/../../"))
 knitr::opts_chunk$set(warning=FALSE, message=FALSE)
 ```
 
@@ -17,7 +17,7 @@ We first load the necessary libraries and some helper functions:
 
 ```{r load_libraries, message=F}
 
-setwd("~/Desktop/Projects/XChromosome_Antonia/")
+setwd(paste0(dirname(rstudioapi::getSourceEditorContext()$path), "/../../"))
 
 library(tidyverse)
 library(ggplot2)
@@ -26,17 +26,8 @@ library(scater)
 library(DESeq2)
 library(patchwork)
 
-source("./Scripts/auxiliary.R")
-
-# General theme for all plots: 
-theme_paper <- function(){
-  theme(panel.background = element_blank(),
-        panel.grid = element_line(colour= "grey92"), 
-        panel.grid.minor = element_line(size = rel(0.5)),
-        axis.line = element_line(colour = "black"),
-        panel.border = element_rect(colour = "black", fill=NA, size=1), 
-        text = element_text(size = 20))
-}
+source("./Scripts/General/auxiliary.R")
+source("./Scripts/General/ase_functions.R")
 
 escape_colors <- setNames(c("darkgrey", "darkgreen", "orange"), nm = c("silenced / variable", "facultative", "constitutive"))
 ```
@@ -96,7 +87,7 @@ data.frame(
     xlab("") + ggtitle("Xist Expression (normalized CPM)") + 
   facet_wrap(~Timepoint, ncol = 1, scales = "free_y") + 
   theme_paper()
-ggsave("./FiguresIllustrator/FigS2/SPEN_Xist_by_sample.pdf")
+ggsave("./Plots/FigS2/SPEN_Xist_by_sample.pdf")
 
 # Main figure plot: 
 size_factors <- colSums(counts(data_with_autosomes)) / colSums(counts(data_with_autosomes))[[1]]
@@ -122,7 +113,7 @@ data.frame(
     scale_y_continuous(expand = c(0, 0), limits = c(0, 320000)) + 
     facet_wrap(~Timepoint, ncol = 1, scales = "free_y") +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-ggsave("./FiguresIllustrator/Fig2/SPEN_Xist_by_condition.pdf")
+ggsave("./Plots/Fig2/SPEN_Xist_by_condition.pdf")
 
 # check changes in escapee expression
 ratios <- counts_inactive(data_here) / (counts_inactive(data_here) + counts_active(data_here))
@@ -163,7 +154,7 @@ ratios %>%
     theme(axis.text.x=element_text(angle = 45, hjust = 1)) + 
     facet_wrap(~Timepoint, scale = "free_x") + 
     xlab("") + theme_paper()
-ggsave("./FiguresIllustrator/FigS2/SPEN_escape_by_sample.pdf")
+ggsave("./Plots/FigS2/SPEN_escape_by_sample.pdf")
 
 joint_escapees <- Reduce("intersect", escapees_per_clone)
 
@@ -193,7 +184,7 @@ ratios[joint_escapees, ] %>%
     facet_wrap(~Timepoint, scale = "free_x") + 
     scale_fill_manual(values = escape_colors) + 
     xlab("") + theme_paper()
-ggsave("./FiguresIllustrator/Fig2/SPEN_escape_by_category_boxplot.pdf", width = 8, height = 6)
+ggsave("./Plots/Fig2/SPEN_escape_by_category_boxplot.pdf", width = 8, height = 6)
 
 # ratios %>%
 #   t() %>% data.frame() %>%
@@ -266,7 +257,7 @@ p2 <- data.frame(Gene = factor(cl30_escapees, levels = levels(to_plot$name)),  A
   theme(legend.position = "None")
 
 p1 / p2 + plot_layout(heights = c(4, 0.2))
-ggsave("./FiguresIllustrator/Fig2/heatmap_spen_only_escapees.pdf", width = 13, height = 3.5)
+ggsave("./Plots/Fig2/heatmap_spen_only_escapees.pdf", width = 13, height = 3.5)
 
 ### 
 p1 <- to_plot %>%
@@ -287,7 +278,7 @@ p2 <- data.frame(Gene = factor(cl30_escapees, levels = levels(to_plot$name)),  A
   theme(legend.position = "None")
 
 p1 / p2 + plot_layout(heights = c(4, 0.2))
-ggsave("./FiguresIllustrator/Fig2/heatmap_spen_only_escapees_by_position.pdf", width = 13, height = 3.5)
+ggsave("./Plots/Fig2/heatmap_spen_only_escapees_by_position.pdf", width = 13, height = 3.5)
 
 #### LM stuff for SPEN-experiment
 general_escape_genes <- Reduce("intersect", escapees_per_clone)
@@ -339,7 +330,7 @@ all_coefs %>%
     theme(aspect.ratio = 2) + theme(legend.position = "top") + geom_hline(yintercept = 0, linetype = "dashed") + 
     ylab("Model coefficient") + xlab("") + 
     scale_color_manual(values = escape_colors)
-ggsave("./FiguresIllustrator/FigS2/SPEN_escape_by_category_boxplot.pdf")
+ggsave("./Plots/FigS2/SPEN_escape_by_category_boxplot.pdf")
 
 # We now convert the coefficients to fold changes in escape: 
 
@@ -368,7 +359,7 @@ df_test %>%
     xlim(c(-0.1, 0.5)) + ylim(c(-0.1, 0.5)) + 
     coord_fixed() + 
     scale_color_manual(values = escape_colors)
-ggsave("./FiguresIllustrator/Fig2/spen_vs_dox_model_3d.pdf", width = 8, height = 6)
+ggsave("./Plots/Fig2/spen_vs_dox_model_3d.pdf", width = 8, height = 6)
 
 df_test %>%
   add_column(escape_status = unlist(rowData(data_here)[match(.$Gene, rowData(data_here)$gene_name), ]$EscapeAnnotation)) %>% 
@@ -384,7 +375,7 @@ df_test %>%
     xlim(c(-0.1, 0.5)) + ylim(c(-0.1, 0.5)) + 
     coord_fixed() + 
     scale_color_manual(values = escape_colors)
-ggsave("./FiguresIllustrator/Fig2/spen_vs_dox_model_7d.pdf", width = 8, height = 6)
+ggsave("./Plots/Fig2/spen_vs_dox_model_7d.pdf", width = 8, height = 6)
 
 # Check how the model coefficients fit with allelic ratio differences: 
 # 

@@ -8,7 +8,7 @@ editor_options:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "~/Desktop/Projects/XChromosome_Antonia/")
+knitr::opts_knit$set(root.dir = paste0(dirname(rstudioapi::getSourceEditorContext()$path), "/../../"))
 knitr::opts_chunk$set(warning=FALSE, message=FALSE)
 ```
 
@@ -17,7 +17,7 @@ We first load the necessary libraries and some helper functions:
 
 ```{r load_libraries}
 
-setwd("~/Desktop/Projects/XChromosome_Antonia/")
+setwd(paste0(dirname(rstudioapi::getSourceEditorContext()$path), "/../../"))
 
 library(tidyverse)
 library(ggplot2)
@@ -26,17 +26,8 @@ library(scater)
 library(DESeq2)
 library(patchwork)
 
-source("./Scripts/auxiliary.R")
-
-# General theme for all plots: 
-theme_paper <- function(){
-  theme(panel.background = element_blank(),
-        panel.grid = element_line(colour= "grey92"), 
-        panel.grid.minor = element_line(size = rel(0.5)),
-        axis.line = element_line(colour = "black"),
-        panel.border = element_rect(colour = "black", fill=NA, size=1), 
-        text = element_text(size = 20))
-}
+source("./Scripts/General/auxiliary.R")
+source("./Scripts/General/ase_functions.R")
 
 escape_colors <- setNames(c("grey", "darkgreen", "orange"), nm = c("silenced / variable", "facultative", "constitutive"))
 
@@ -68,7 +59,7 @@ data.frame(
   total = rowSums(counts(data_baseline_x[,data_baseline_x$Clone == "E6"])), 
   active = rowSums(counts_active(data_baseline_x[,data_baseline_x$Clone == "E6"])), 
   inactive = rowSums(counts_inactive(data_baseline_x[,data_baseline_x$Clone == "E6"]))
-) %>% saveRDS(., "~/Desktop/Projects/XChromosome_Antonia/Data/e6_expression_levels.rds")
+) %>% saveRDS(., "./Data/e6_expression_levels.rds")
 
 
 
@@ -83,7 +74,7 @@ data.frame(
   ggplot(aes(x = counts_total + 1, y = counts_allelic + 1)) + geom_point() + scale_x_log10() + scale_y_log10() + 
   theme_paper() + geom_vline(xintercept = 10, linetype = "dashed") + xlab("Total reads mapped") + ylab("Allele-specific reads mapped") + 
   geom_abline(linetype = "dashed")
-ggsave("./FiguresIllustrator/FigS1/mapped_reads_c30.pdf")
+ggsave("./Plots/FigS1/mapped_reads_c30.pdf")
 
 data.frame(
   chromosome = as.character(seqnames(rowRanges(data_with_autosomes))) == "X", 
@@ -91,7 +82,7 @@ data.frame(
   ase =  (counts_active(data_with_autosomes[,sample_show]) / (counts_active(data_with_autosomes[,sample_show]) + counts_inactive(data_with_autosomes[,sample_show])))[[1]]
 ) %>%
   ggplot(aes(x = ase, fill = chromosome)) + geom_density() + theme_paper() + ylab("Density") + xlab("B6 / (B6 + CAST)")
-ggsave("./FiguresIllustrator/FigS1/density_ase_c30.pdf")
+ggsave("./Plots/FigS1/density_ase_c30.pdf")
 
 # Show for one E6 example: 
 sample_show = 31
@@ -104,7 +95,7 @@ data.frame(
   ggplot(aes(x = counts_total + 1, y = counts_allelic + 1)) + geom_point() + scale_x_log10() + scale_y_log10() + 
   theme_paper() + geom_vline(xintercept = 10, linetype = "dashed") + xlab("Total reads mapped") + ylab("Allele-specific reads mapped") + 
   geom_abline(linetype = "dashed")
-ggsave("./FiguresIllustrator/FigS1/mapped_reads_e6.pdf")
+ggsave("./Plots/FigS1/mapped_reads_e6.pdf")
 
 data.frame(
   chromosome = as.character(seqnames(rowRanges(data_with_autosomes))) == "X", 
@@ -112,7 +103,7 @@ data.frame(
   ase =  (counts_active(data_with_autosomes[,sample_show]) / (counts_active(data_with_autosomes[,sample_show]) + counts_inactive(data_with_autosomes[,sample_show])))[[1]]
 ) %>%
   ggplot(aes(x = ase, fill = chromosome)) + geom_density() + theme_paper() + ylab("Density") + xlab("B6 / (B6 + CAST)")
-ggsave("./FiguresIllustrator/FigS1/density_ase_e6.pdf")
+ggsave("./Plots/FigS1/density_ase_e6.pdf")
 
 # Plot escape in individual clones
 sample_nr = 1 # Clone 30
@@ -126,7 +117,7 @@ data.frame(
   ggplot(aes(total, ase)) + geom_point() + ggrepel::geom_text_repel(aes(label = Gene)) +
   theme_paper() + scale_x_log10() + geom_hline(yintercept = 0.1, linetype = "dashed") + ggtitle("Clone 30") +
   xlab("Total expression (allelic reads)") + ylab("ASE (d-score)")
-ggsave("./FiguresIllustrator/FigS1/cl30_escape.pdf", width = 12, height = 8)
+ggsave("./Plots/FigS1/cl30_escape.pdf", width = 12, height = 8)
 
 sample_nr = 3 # E6
 
@@ -139,7 +130,7 @@ data.frame(
   ggplot(aes(total, ase)) + geom_point() + ggrepel::geom_text_repel(aes(label = Gene)) +
   theme_paper() + scale_x_log10() + geom_hline(yintercept = 0.1, linetype = "dashed") + ggtitle("Clone E6") +
   xlab("Total expression (allelic reads)") + ylab("ASE (d-score)")
-ggsave("./FiguresIllustrator/FigS1/e6_escape.pdf", width = 12, height = 8)
+ggsave("./Plots/FigS1/e6_escape.pdf", width = 12, height = 8)
 
 ```
 
@@ -179,7 +170,7 @@ ratios %>%
   theme(axis.ticks.y = element_blank()) + xlab("") + ylab("Chromosome position") + 
   scale_fill_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white") + 
   scale_y_discrete(labels = genes_of_choice, position = "right") + ylab("") + labs(fill = "d-score")
-ggsave("./FiguresIllustrator/FigS1/heatmap_ordered.pdf", width = 10, height = 10)
+ggsave("./Plots/FigS1/heatmap_ordered.pdf", width = 10, height = 10)
 
 ratios %>%
   t() %>% data.frame(check.names = F) %>%
@@ -193,7 +184,7 @@ ratios %>%
   theme(axis.ticks.y = element_blank()) + xlab("") + ylab("Chromosome position") + 
   scale_fill_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white") + 
   scale_y_discrete(labels = genes_of_choice, position = "left") + ylab("") + labs(fill = "d-score") + coord_flip()
-ggsave("./FiguresIllustrator/FigS1/heatmap_ordered_streched.pdf", width = 30, height = 10)
+ggsave("./Plots/FigS1/heatmap_ordered_streched.pdf", width = 30, height = 10)
 
 # Plot d-scores for genes that escape in any sample, excluding genes with > 0.7 d-score
 ratios <- ratios[!rownames(ratios) %in% genes_out, ]
@@ -219,7 +210,7 @@ ratios %>%
   ggplot(aes(x = Clone, fill = escape_in_clones)) + geom_bar() + theme_paper() + 
   theme(axis.text.x=element_text(angle = 45, hjust = 1)) + xlab("") + ylab("Number of genes with d-score > 0.1") + 
   scale_fill_manual(values = c("grey", "darkred"), name = "Escape in all samples")
-ggsave("./FiguresIllustrator/FigS1/number_of_escapees_per_clone.pdf", width = 8, height = 8)
+ggsave("./Plots/FigS1/number_of_escapees_per_clone.pdf", width = 8, height = 8)
 
 ratios %>%
   t() %>% data.frame(check.names = F) %>%
@@ -234,7 +225,7 @@ ratios %>%
   ggplot(aes(x = Clone, fill = escape_in_clones)) + geom_bar() + theme_paper() + 
     theme(axis.text.x=element_text(angle = 45, hjust = 1)) + xlab("") + ylab("Number of genes with d-score > 0.1") + 
     scale_fill_manual(values = c("grey", "darkred"), name = "Escape in all clones") + facet_wrap(~escape_group)
-ggsave("./FiguresIllustrator/FigS1/number_of_escapees_per_clone_stratified.pdf", width = 8, height = 8)
+ggsave("./Plots/FigS1/number_of_escapees_per_clone_stratified.pdf", width = 8, height = 8)
 
 ```
 
@@ -266,7 +257,7 @@ data.frame(
     xlab("") + ylab("Expression (CPM)") + geom_jitter(size = 3, width = 0.1) + 
     scale_y_continuous(expand = c(0, 0), limits = c(0, 320000)) + 
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-ggsave("./FiguresIllustrator/Fig1/xist_overexpression.pdf", width = 4, height = 4)
+ggsave("./Plots/Fig1/xist_overexpression.pdf", width = 4, height = 4)
 
 # For the next heatmap, we want to highlight a few genes
 genes_show <- c("Xist", "Mecp2", "Kdm6a", "Kdm5c")
@@ -291,7 +282,7 @@ ratios %>%
     ylab("") + theme(panel.border = element_blank(), axis.line=element_blank()) + 
     scale_x_discrete(labels = genes_of_choice, position = "bottom") + 
     labs(fill = "d-score") + guides(fill = "none")
-ggsave("./FiguresIllustrator/Fig1/heatmap_ordered.pdf", width = 6, height = 4)
+ggsave("./Plots/Fig1/heatmap_ordered.pdf", width = 6, height = 4)
 
 # Get escapees that are consistent across E6 samples
 e6_escapees <- Reduce("intersect", escapees_per_clone[3:5])
@@ -314,7 +305,7 @@ ratios %>%
     ylab("") + theme(panel.border = element_blank(), axis.line=element_blank()) + 
     scale_x_discrete(labels = genes_of_choice, position = "bottom") + 
     labs(fill = "d-score")
-ggsave("./FiguresIllustrator/FigS1/heatmap_ordered_by_clones.pdf", width = 10, height = 10)
+ggsave("./Plots/FigS1/heatmap_ordered_by_clones.pdf", width = 10, height = 10)
 
 # Now, we show a heatmap with only the escapees
 
@@ -356,7 +347,7 @@ p2 <- data.frame(Gene = factor(e6_escapees, levels = levels(to_plot$name)),  Ann
   theme(legend.position = "None")
 
 p1 / p2 + plot_layout(heights = c(4, 0.2))
-ggsave("./FiguresIllustrator/Fig1/heatmap_ordered_only_escapees.pdf", width = 20, height = 4)
+ggsave("./Plots/Fig1/heatmap_ordered_only_escapees.pdf", width = 20, height = 4)
 
 # Also do this reordering
 p1 <- to_plot %>%
@@ -377,7 +368,7 @@ p2 <- data.frame(Gene = factor(e6_escapees, levels = levels(to_plot$name)),  Ann
   theme(legend.position = "None")
 
 p1 / p2 + plot_layout(heights = c(4, 0.2))
-ggsave("./FiguresIllustrator/Fig1/heatmap_ordered_only_escapees_by_position.pdf", width = 20, height = 4)
+ggsave("./Plots/Fig1/heatmap_ordered_only_escapees_by_position.pdf", width = 20, height = 4)
 
 # Quantify for genes that escape in E6 in the Control sample
 ratios[e6_escapees, ] %>%
@@ -397,7 +388,7 @@ ratios[e6_escapees, ] %>%
     theme(axis.text.x=element_text(angle = 45, hjust = 1)) + 
     scale_fill_manual(values = c("grey", "darkgreen", "orange"), labels = c("Silenced / Variable", "Facultative", "Constitutive")) + 
     labs(fill = "Escape Category") + xlab("")
-ggsave("./FiguresIllustrator/Fig1/escapee_silencing_boxplots.pdf", width = 9, height = 6)
+ggsave("./Plots/Fig1/escapee_silencing_boxplots.pdf", width = 9, height = 6)
 
 ratios %>%
   t() %>% data.frame() %>%
@@ -416,7 +407,7 @@ ratios %>%
     theme_paper() + ylab("ASE (d-score)") + 
     theme(axis.text.x=element_text(angle = 45, hjust = 1)) + 
     labs(fill = "Escape Category") + xlab("")
-ggsave("./FiguresIllustrator/FigS1/escapee_silencing_boxplots_per_clone.pdf", width = 9, height = 6)
+ggsave("./Plots/FigS1/escapee_silencing_boxplots_per_clone.pdf", width = 9, height = 6)
 
 
 ### For supplement, plot the heatmap etc in CL30/CL31
@@ -443,7 +434,7 @@ data.frame(
   coord_flip() + theme_paper() + 
   xlab("") + ylab("Xist Expression (normalized CPM)") + geom_jitter(size = 3, width = 0.1) + 
   scale_y_continuous(expand = c(0, 0), limits = c(0, 260000))
-ggsave("./FiguresIllustrator/FigS1/xist_overexpression_cl30_31.pdf", width = 6, height = 8)
+ggsave("./Plots/FigS1/xist_overexpression_cl30_31.pdf", width = 6, height = 8)
 
 genes_show <- c("Xist", "Mecp2", "Kdm6a", "Kdm5c")
 genes_of_choice <- setNames(rep("", nrow(ratios)), rownames(ratios))
@@ -466,7 +457,7 @@ ratios %>%
     ylab("") + theme(panel.border = element_blank(), axis.line=element_blank()) + 
     scale_x_discrete(labels = genes_of_choice, position = "bottom") + 
     labs(fill = "d-score")
-ggsave("./FiguresIllustrator/FigS1/heatmap_ordered_cl30_cl31.pdf", width = 10, height = 10)
+ggsave("./Plots/FigS1/heatmap_ordered_cl30_cl31.pdf", width = 10, height = 10)
 
 ratios %>%
   t() %>% data.frame(check.names = F) %>%
@@ -487,7 +478,7 @@ ratios %>%
     ylab("") + theme(panel.border = element_blank(), axis.line=element_blank()) + 
     scale_x_discrete(labels = genes_of_choice, position = "bottom") +
     labs(fill = "d-score")
-ggsave("./FiguresIllustrator/FigS1/heatmap_ordered_by_clones_cl30_cl31.pdf", width = 10, height = 10)
+ggsave("./Plots/FigS1/heatmap_ordered_by_clones_cl30_cl31.pdf", width = 10, height = 10)
 
 escapees_cl30 <- Reduce("intersect", escapees_per_clone[-c(3:5)])
 ratios[escapees_cl30, ] %>%
@@ -507,7 +498,7 @@ ratios[escapees_cl30, ] %>%
     theme(axis.text.x=element_text(angle = 45, hjust = 1)) + 
     scale_fill_manual(values = c("grey", "darkgreen", "orange"), labels = c("Silenced / Variable", "Facultative", "Constitutive")) + 
     labs(fill = "Escape Category") + xlab("")
-ggsave("./FiguresIllustrator/Fig1/escapee_silencing_boxplots_cl30_cl31.pdf", width = 9, height = 6)
+ggsave("./Plots/Fig1/escapee_silencing_boxplots_cl30_cl31.pdf", width = 9, height = 6)
 
 ratios %>%
   t() %>% data.frame() %>%
@@ -526,7 +517,7 @@ ratios %>%
     theme_paper() + ylab("ASE (d-score)") + 
     theme(axis.text.x=element_text(angle = 45, hjust = 1)) + 
     labs(fill = "Escape Category") + xlab("")
-ggsave("./FiguresIllustrator/FigS1/escapee_silencing_boxplots_per_clone_cl30_cl31.pdf", width = 9, height = 6)
+ggsave("./Plots/FigS1/escapee_silencing_boxplots_per_clone_cl30_cl31.pdf", width = 9, height = 6)
 
 
 ############ 
@@ -568,7 +559,7 @@ p2 <- data.frame(Gene = factor(e6_escapees, levels = levels(to_plot$name)),  Ann
   theme(legend.position = "None")
 
 p1 / p2 + plot_layout(heights = c(4, 0.2))
-ggsave("./FiguresIllustrator/FigS1/cl30_heatmap_ordered_only_escapees.pdf", width = 20, height = 4)
+ggsave("./Plots/FigS1/cl30_heatmap_ordered_only_escapees.pdf", width = 20, height = 4)
 
 # Also do this reordering
 p1 <- to_plot %>%
@@ -589,7 +580,7 @@ p2 <- data.frame(Gene = factor(e6_escapees, levels = levels(to_plot$name)),  Ann
   theme(legend.position = "None")
 
 p1 / p2 + plot_layout(heights = c(4, 0.2))
-ggsave("./FiguresIllustrator/Fig1/cl30_heatmap_ordered_only_escapees_by_position.pdf", width = 20, height = 4)
+ggsave("./Plots/Fig1/cl30_heatmap_ordered_only_escapees_by_position.pdf", width = 20, height = 4)
 
 ```
 
@@ -688,7 +679,7 @@ rbind(df_inactive, rbind(df_active, df_total)) %>%
   ggplot(aes(x = baseMean, y = log2FoldChange, col = padj < 0.1)) + geom_point() + scale_x_log10() + 
     ggrepel::geom_text_repel(aes(label = Gene)) + xlab("Mean Expression (log normalized counts)") + ylab("log2 (7d dox / Control)") + 
     theme_paper() + facet_wrap(~Status) + scale_color_manual(values = c("black", "red"))
-ggsave("./FiguresIllustrator/FigS1/escape_deseq_analysis.pdf", width = 9, height = 6)
+ggsave("./Plots/FigS1/escape_deseq_analysis.pdf", width = 9, height = 6)
 
 # Visualize also as a heatmap: 
 
@@ -701,7 +692,7 @@ df_combined %>%
     theme(axis.title.x=element_blank(),
         axis.text.x=element_blank(),
         axis.ticks.x=element_blank())
-ggsave("./FiguresIllustrator/FigS1/escape_deseq_analysis_heatmap.pdf", width = 9, height = 30)
+ggsave("./Plots/FigS1/escape_deseq_analysis_heatmap.pdf", width = 9, height = 30)
 
 ```
 
@@ -735,7 +726,7 @@ df_here %>% ggplot(aes(x = BasalExpressionLevel, y = BasalEscape, col = EscapeCa
 df_here %>% ggplot(aes(x = BasalExpressionLevel, y = BasalEscape, col = EscapeCategory)) + 
   geom_point() + scale_x_log10() + theme_paper() + scale_color_manual(values = escape_colors) + geom_smooth(method = 'lm', linetype = 'dashed')  + 
   geom_hline(yintercept = 0.5, linetype = 'dashed', col = "grey")
-ggsave("./FiguresIllustrator/FigS1/basal_exp_vs_basal_escape.pdf", width = 9, height = 6)
+ggsave("./Plots/FigS1/basal_exp_vs_basal_escape.pdf", width = 9, height = 6)
 
 
 df_here %>% ggplot(aes(x = BasalExpressionLevel, y = EscapeDifference, col = EscapeCategory)) + 
@@ -743,7 +734,7 @@ df_here %>% ggplot(aes(x = BasalExpressionLevel, y = EscapeDifference, col = Esc
 
 df_here %>% ggplot(aes(x = BasalExpressionLevel, y = EscapeDifference, col = EscapeCategory)) + 
   geom_point() + scale_x_log10() + theme_paper() + scale_color_manual(values = escape_colors) + geom_smooth(method = 'lm', linetype = 'dashed')
-ggsave("./FiguresIllustrator/FigS1/basal_exp_vs_basal_escape_diff.pdf", width = 9, height = 6)
+ggsave("./Plots/FigS1/basal_exp_vs_basal_escape_diff.pdf", width = 9, height = 6)
 
 
 df_here %>% ggplot(aes(x = BasalInactiveExpressionLevel, y = BasalEscape, col = EscapeCategory)) + 
@@ -901,14 +892,14 @@ merged_df %>%
   ggplot(aes(x = BIC_native, BIC_offset, col = category)) + geom_point() + geom_abline() +
   ggrepel::geom_text_repel(aes(label = gene)) + theme_paper() +  xlab("BIC exponential decay model") +  ylab("BIC exponential decay model + offset") + 
     labs(col = "Escape category") + scale_color_manual(values = escape_colors)
-ggsave("./FiguresIllustrator/FigS1/bic_model_choice.pdf", width = 9, height = 6)
+ggsave("./Plots/FigS1/bic_model_choice.pdf", width = 9, height = 6)
 
 merged_df %>%
   ggplot(aes(x = halflifes_off, b_off, col = category, shape = BIC_native > BIC_offset)) + 
     geom_point(size = 3) + ylim(c(0, 0.3)) + ggrepel::geom_text_repel(aes(label = gene), size = 5) + 
     theme_paper() + scale_color_manual(values = escape_colors) + theme_paper() + xlab("half-life (non-linear regression) [days]") + 
     ylab("offset parameter (non-linear regression)") + labs(col = "Escape category", shape = "Offset model favored (BIC)") + scale_x_log10()
-ggsave("./FiguresIllustrator/Fig1/half_life_vs_baseline.pdf", width = 9, height = 6)
+ggsave("./Plots/Fig1/half_life_vs_baseline.pdf", width = 9, height = 6)
 
 merged_df %>%
   dplyr::filter(!is.na(category)) %>%
@@ -925,14 +916,14 @@ merged_df %>%
   ggplot(aes(x = category, y = halflifes_off, fill = category)) + geom_boxplot(width = 0.1, outlier.color = NA) + ggbeeswarm::geom_quasirandom() +theme_paper() + 
   scale_fill_manual(values = escape_colors) + xlab("") + ylab("half-life (non-linear regression) [days]") + ggtitle("Escape half-life") + 
   ggrepel::geom_text_repel(aes(label = gene))
-ggsave("./FiguresIllustrator/Fig1/half_life_category.pdf", width = 9, height = 6)
+ggsave("./Plots/Fig1/half_life_category.pdf", width = 9, height = 6)
 
 merged_df %>%
   dplyr::filter(!is.na(category)) %>%
   ggplot(aes(x = category, y = b_off, fill = category)) + geom_boxplot(width = 0.1, outlier.color = NA) + ggbeeswarm::geom_quasirandom() + theme_paper() + 
   scale_fill_manual(values = escape_colors) + xlab("") + ylab("offset parameter (non-linear regression)") + ggtitle("Residual escape") + 
   ggrepel::geom_text_repel(aes(label = gene))
-ggsave("./FiguresIllustrator/Fig1/residual_escape_category.pdf", width = 9, height = 6)
+ggsave("./Plots/Fig1/residual_escape_category.pdf", width = 9, height = 6)
 
 ```
 
@@ -978,16 +969,16 @@ plot_decay_gene <- function(gene, save_plot = F, path = "./"){
  
 }
 
-plot_decay_gene("Pbdc1", save_plot = T, path = "./FiguresIllustrator/Fig1/")
-plot_decay_gene("Med14", save_plot = T, path = "./FiguresIllustrator/Fig1/")
-plot_decay_gene("Mecp2", save_plot = T, path = "./FiguresIllustrator/Fig1/")
-plot_decay_gene("Tfe3", save_plot = T, path = "./FiguresIllustrator/Fig1/")
+plot_decay_gene("Pbdc1", save_plot = T, path = "./Plots/Fig1/")
+plot_decay_gene("Med14", save_plot = T, path = "./Plots/Fig1/")
+plot_decay_gene("Mecp2", save_plot = T, path = "./Plots/Fig1/")
+plot_decay_gene("Tfe3", save_plot = T, path = "./Plots/Fig1/")
 
 genes_plot <- merged_df[merged_df$category == "constitutive", ]$gene
 genes_plot <- genes_plot[!is.na(genes_plot)]
 
 for (gene in genes_plot){
-  plot_decay_gene(gene, save_plot = T, path = "./FiguresIllustrator/Fig1/")
+  plot_decay_gene(gene, save_plot = T, path = "./Plots/Fig1/")
 }
 
 ```

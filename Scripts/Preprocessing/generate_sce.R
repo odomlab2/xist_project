@@ -10,6 +10,8 @@ library(SingleCellExperiment)
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 setwd("../../")
 
+source("./Scripts/General/reuse_functions.R")
+
 data <- read.csv("./Data/December_2021/table_raw_counts.txt", sep = "\t")
 
 # isolate genes information
@@ -511,7 +513,7 @@ escapee_annotation_status %>%
   scale_fill_manual(values = c("red", "grey", "black")) + 
   ylab("Study") + xlab("Genes ordered by chromosomal coordinate") + 
   labs(fill = "")
-ggsave("./FiguresIllustrator/FigS1/escape_annotation_heatmap.pdf", width = 8, height = 8)
+ggsave("./Plots//FigS1/escape_annotation_heatmap.pdf", width = 8, height = 8)
 
 escape_colors <- setNames(c("grey", "darkgreen", "orange"), nm = c("silenced / variable", "facultative", "constitutive"))
 escape_colors_other_name <- setNames(c("lightblue", "grey", "darkgreen", "orange"), nm = c("NA", "S", "V", "E"))
@@ -525,7 +527,7 @@ escapee_annotation%>%
     ggrepel::geom_text_repel(data = escapee_annotation[escapee_annotation$`final status` == "E", ], aes(label = symbol, col = escape_status)) + 
     xlab("Number of studies in which gene escapes") + ylab("Number of studies in which gene is silenced") + 
     scale_color_manual(values = escape_colors)
-ggsave("./FiguresIllustrator/FigS1/escape_annotation_scatter.pdf", width = 8, height = 8)
+ggsave("./Plots/FigS1/escape_annotation_scatter.pdf", width = 8, height = 8)
 
 ### Add number of days washout as variable
 dataset_complete$ndWashout <- unlist(lapply(dataset_complete$timeWO, function(x){
