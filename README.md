@@ -9,7 +9,7 @@ All data (RNA-Seq, Cut and Run, WGBS and capture HIC) is available from GEO at X
 
 ## Preprocessing
 - RNA-Seq: Preprocessing of RNA-Seq data into (allele-specific) count matrices can be done using the workflow at https://github.com/yuviaapr/allele-specific_RNA-seq. These matrices are then read into SCE objects using the scripts in ./Preprocessing/, which are the base for the rest of the analysis.
-- Cut-and-Run: Preproessing of Cut-and-Run data into (allele-specific) alignment files from which one can generate (allele-specific) count matrices for windows, genes and other genomic features (./Preprocessing).
+- Cut-and-Run: Preprocessing of Cut-and-Run data into (allele-specific) alignment files can be done using the workflow at https://github.com/yuviaapr/allele-specific_CUTandRUN, from which one can generate (allele-specific) count matrices for windows, genes and other genomic features (./Preprocessing).
 - WGBS: WGBS data is aligned using the methylseq pipeline (https://nf-co.re/methylseq/2.6.0/) and then preprocessed into (allele-specific) per-base methylation value files (file names?) using SNP-split and (which tool?)
 - Hi-C data: XXX
 
