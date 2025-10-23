@@ -35,11 +35,10 @@ df_full <- df_full %>%
   group_by(Gene) %>%
   mutate(coverage_threshold = sum(baseMean > 10)) %>%
   dplyr::filter(coverage_threshold == length(datasets_include)) %>%
-  # mutate(ref_lfc = log2FoldChange[Comparison == reference_group]) %>%
-  # mutate(ref_padj = padj[Comparison == reference_group]) %>%
   dplyr::select(-c("lfcSE", "stat", "coverage_threshold"))
 
 # add chromosome information
+library(EnsDb.Mmusculus.v79)
 genes <- genes(EnsDb.Mmusculus.v79) %>% data.frame() %>%
   dplyr::filter(gene_name %in% df_full$Gene) %>%
   dplyr::filter(!duplicated(gene_name)) %>%
@@ -84,6 +83,9 @@ df_full_pairwise %>%
   group_by(variable_x, variable_y) %>%
   summarize(cor = cor(x, y)) %>%
   dplyr::filter(cor < .99) %>%
+  dplyr::filter(variable_x %in% c("E6_7d", "CL30_7d", "CL31_7d", "Astro_7d") & variable_y %in% c("E6_7d", "CL30_7d", "CL31_7d", "Astro_7d")) -> df_plot_s3l
+
+df_plot_s3l %>%
   ggplot(aes(x = variable_x, y = variable_y)) + geom_point(aes(fill = cor), pch =21, size = 10) + 
     scale_fill_gradient2(low = "darkblue", high = "darkred", mid = "white") + theme_paper() + xlab("") + ylab("") + 
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
@@ -100,7 +102,9 @@ df_full %>%
 
 df_full %>%
   dplyr::filter(Chromosome != "X") %>%
-  dplyr::filter(padj < .1) %>%
+  dplyr::filter(padj < .1) -> df_plot_s3m_1
+
+df_plot_s3m_1 %>%
   dplyr::filter(log2FoldChange > 0) %>%
   dplyr::filter(Comparison != "Astro_3d") %>%
   group_by(Comparison) %>%
@@ -113,12 +117,16 @@ df_full %>%
   dplyr::filter(Chromosome != "X") %>%
   dplyr::filter(padj < .1) %>%
   dplyr::filter(log2FoldChange < 0) %>%
-  dplyr::filter(Comparison != "Astro_3d") %>%
+  dplyr::filter(Comparison != "Astro_3d") -> df_plot_s3m_2
+  
+df_plot_s3m_2  %>%
   group_by(Comparison) %>%
   summarize(genes = list(Gene)) %>%
   pull(genes, name = "Comparison") %>%
   ggVennDiagram::ggVennDiagram(label = "count") + scale_fill_gradient(low = "white", high = "red")
 ggsave("./Plots/FigsX_autosomal_joint_analysis/venn_genes_down.pdf")
+
+df_plot_s3m <- rbind(cbind(df_plot_s3m_1, "Direction" = "upregulated"), cbind(df_plot_s3m_2, "Direction" = "downregulated"))
 
 df_full %>%
   dplyr::filter(Chromosome != "X") %>%
@@ -224,92 +232,94 @@ df_full_position_here %>%
   group_by(Comparison) %>%
   group_map(~compute_statistics(.x, .1)) -> statistics_results
 
-do.call("rbind", statistics_results) %>%
+do.call("rbind", statistics_results) -> df_plot_s3i
+
+df_plot_s3i %>%
   ggplot(aes(x = condition, y = ratio)) + 
     stat_summary(geom = "bar") +
     stat_summary(geom = "errorbar", fun.data = function(x) {mean_sdl(x, mult = 1)}) + 
     ggbeeswarm::geom_quasirandom(size = 5, pch = 21, fill = "grey") + 
     coord_flip() + 
-    xlab("") + ylab("Fraction of genes with DE neighbour") + theme_paper() + facet_wrap(~comparison, scales = "free")
-ggsave("./Plots/FigsX_autosomal_joint_analysis/gene_pairing_analysis.pdf", width = 12, height = 12)
+    xlab("") + ylab("Fraction of genes with DE neighbour") + theme_paper() + facet_wrap(~comparison, scales = "free") + 
+    ylim(c(0, 0.4))
+ggsave("./Plots/FigsX_autosomal_joint_analysis/gene_pairing_analysis.pdf", width = 24, height = 8)
 
-# run go analysis
-source("./xist_project/Scripts/Rscripts/R_gsea_functions.R")
+# # run go analysis
+# source("./xist_project/Scripts/Rscripts/R_gsea_functions.R")
+# 
+# run_gage_per_exp <- function(deseq.res, gs_database, is_human = T){
+#   print(unique(deseq.res$Comparison2))
+#   library(gage)
+#   exp.fc <- deseq.res$log2FoldChange
+#   names(exp.fc) <- deseq.res$Gene
+#   if (!is_human){
+#     #### this is just dummy to convert mouse to human, do thath later via gene ontology
+#     #### presumably gsea broad software does the same thing
+#     names(exp.fc) <- toupper(names(exp.fc))
+#   }
+#   fc.kegg.p <- gage(exp.fc, gsets = gs_database, ref = NULL, samp = NULL)
+#   res_great <- data.frame(fc.kegg.p$greater)
+#   res_lower <- data.frame(fc.kegg.p$less)
+#   list("upregulated" = res_great, "downregulated" = res_lower)
+# }
+# 
+# kegg.genesets <- get_gs_database_kegg()
+# hs.genesets <- get_gs_database_msigdb()
+# # hs.genesets.c1 <- get_gs_database_msigdb(which_set = "C1")
+# # hs.genesets.c5 <- get_gs_database_msigdb(which_set = "C5")
+# 
+# gs_results <- df_full %>%
+#   dplyr::filter(Chromosome != "X") %>%
+#   dplyr::select(c(Gene, log2FoldChange, Comparison)) %>%
+#   mutate(Comparison2 = Comparison) %>%
+#   group_by(Comparison) %>%
+#   group_map(~run_gage_per_exp(.x, is_human = F, gs_database = hs.genesets))
 
-run_gage_per_exp <- function(deseq.res, gs_database, is_human = T){
-  print(unique(deseq.res$Comparison2))
-  library(gage)
-  exp.fc <- deseq.res$log2FoldChange
-  names(exp.fc) <- deseq.res$Gene
-  if (!is_human){
-    #### this is just dummy to convert mouse to human, do thath later via gene ontology
-    #### presumably gsea broad software does the same thing
-    names(exp.fc) <- toupper(names(exp.fc))
-  }
-  fc.kegg.p <- gage(exp.fc, gsets = gs_database, ref = NULL, samp = NULL)
-  res_great <- data.frame(fc.kegg.p$greater)
-  res_lower <- data.frame(fc.kegg.p$less)
-  list("upregulated" = res_great, "downregulated" = res_lower)
-}
+# names <- c("Astro_3d", "Astro_7d", "CL30_7d", "CL31_7d", "E6_7d")
+# gs_results_proc <- lapply(1:length(gs_results), function(i){
+#   x = gs_results[[i]]
+#   rbind(
+#     cbind(x$upregulated, "direction" = "up"), 
+#     cbind(x$downregulated, "direction" = "down")
+#   ) %>% 
+#     add_column("Comparison" = names[[i]])
+# }) %>% do.call("rbind", .)
 
-kegg.genesets <- get_gs_database_kegg()
-hs.genesets <- get_gs_database_msigdb()
-# hs.genesets.c1 <- get_gs_database_msigdb(which_set = "C1")
-# hs.genesets.c5 <- get_gs_database_msigdb(which_set = "C5")
+# gs_results_proc %>% 
+#   rownames_to_column("geneset") %>%
+#   dplyr::filter(q.val < .1) %>%
+#   group_by(Comparison, direction) %>%
+#   group_map(~head(.x, n = 5), .keep = T) %>% do.call("rbind", .) %>%
+#   ggplot(aes(x = reorder(geneset, stat.mean), y = stat.mean, col = -log10(q.val))) + geom_point() + 
+#     facet_wrap(~Comparison, scales = "free_y", nrow = 1) + coord_flip() + 
+#     geom_hline(yintercept = 0)
+# ggsave("./Plots/FigsX_autosomal_joint_analysis/go_analysis.pdf", width = 20, height = 6)
 
-gs_results <- df_full %>%
-  dplyr::filter(Chromosome != "X") %>%
-  dplyr::select(c(Gene, log2FoldChange, Comparison)) %>%
-  mutate(Comparison2 = Comparison) %>%
-  group_by(Comparison) %>%
-  group_map(~run_gage_per_exp(.x, is_human = F, gs_database = hs.genesets))
-
-names <- c("Astro_3d", "Astro_7d", "CL30_7d", "CL31_7d", "E6_7d")
-gs_results_proc <- lapply(1:length(gs_results), function(i){
-  x = gs_results[[i]]
-  rbind(
-    cbind(x$upregulated, "direction" = "up"), 
-    cbind(x$downregulated, "direction" = "down")
-  ) %>% 
-    add_column("Comparison" = names[[i]])
-}) %>% do.call("rbind", .)
-
-gs_results_proc %>% 
-  rownames_to_column("geneset") %>%
-  dplyr::filter(q.val < .1) %>%
-  group_by(Comparison, direction) %>%
-  group_map(~head(.x, n = 5), .keep = T) %>% do.call("rbind", .) %>%
-  ggplot(aes(x = reorder(geneset, stat.mean), y = stat.mean, col = -log10(q.val))) + geom_point() + 
-    facet_wrap(~Comparison, scales = "free_y", nrow = 1) + coord_flip() + 
-    geom_hline(yintercept = 0)
-ggsave("./Plots/FigsX_autosomal_joint_analysis/go_analysis.pdf", width = 20, height = 6)
-
-## compare to cnr data
+# compare to cnr data
 library(csaw)
 library(DESeq2)
 library(tidyverse)
 
 theme_paper <- function(textsize = 20){
   theme(panel.background = element_blank(),
-        panel.grid.major = element_blank(), 
+        panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         axis.line = element_line(colour = "black"),
-        panel.border = element_rect(colour = "black", fill=NA, size=1), 
-        text = element_text(size = textsize, color = "black"), 
-        axis.text = element_text(size = textsize, color = "black"), 
-        axis.ticks = element_line(colour = 'black', size = 1), 
+        panel.border = element_rect(colour = "black", fill=NA, size=1),
+        text = element_text(size = textsize, color = "black"),
+        axis.text = element_text(size = textsize, color = "black"),
+        axis.ticks = element_line(colour = 'black', size = 1),
         axis.ticks.length = unit(.25, "cm"))
 }
 
-# setwd("/omics/groups/OE0538/internal/users/panten/projects/AntoniaESCProject/allele-specific_cut_and_run/")
-test <- readRDS("./ProcessedData/cnr_processed/genebody_totalcounts_processed.rds")
+test <- readRDS("./ProcessedData/genebody_totalcounts_processed.rds")
 
 metadata_corrected <- colData(test)
 
-assays(test)[["counts_total"]] %>% 
+assays(test)[["counts_total"]] %>%
   data.frame() %>%
   rownames_to_column("Gene") %>%
-  pivot_longer(-c("Gene")) %>% 
+  pivot_longer(-c("Gene")) %>%
   add_column(assay = metadata_corrected[.$name, ]$HistoneMark) %>%
   add_column(Condition = metadata_corrected[.$name, ]$Condition) %>%
   mutate(Condition = gsub("r2|r3", "", Condition)) %>%
@@ -323,7 +333,6 @@ long_data %>%
   mutate(Gene = genes[match(Gene, genes$gene_id), ]$symbol) -> long_data
 
 long_data %>%
-  # dplyr::filter(chr != "X") %>%
   group_by(Gene, assay) %>%
   mutate(average_coverage = mean(value)) %>%
   dplyr::filter(average_coverage > 20) %>%
@@ -335,7 +344,7 @@ processed_data %>%
   group_by(assay, Condition, Gene, xchr) %>%
   summarize(mean = mean(value_norm)) %>%
   group_by(Gene, assay) %>%
-  mutate(lfc = log2((mean + 1) / (mean[Condition == "NoDox"] + 1))) %>% 
+  mutate(lfc = log2((mean + 1) / (mean[Condition == "NoDox"] + 1))) %>%
   dplyr::filter(Condition != "NoDox") -> cnr_foldchanges
 
 cnr_foldchanges %>%
@@ -352,10 +361,12 @@ df_full_position_here %>%
 
 joint_data %>%
   dplyr::filter(xchr == "Autosomes") %>%
-  dplyr::filter(Comparison != "Astro_3d") %>%
+  dplyr::filter(Comparison != "Astro_3d") -> df_plot_s9f
+
+df_plot_s9f %>%
   ggplot(aes(x = log2FoldChange, y = value)) +
-  geom_point(size = .01) + 
-    facet_wrap(~name+Comparison, nrow = 2) + theme_paper() + 
+  geom_point(size = .01) +
+    facet_wrap(~name+Comparison, nrow = 2) + theme_paper() +
     xlab("log2Foldchange (RNA)") + ylab("log2Foldchange (CnR)")
 ggsave("./Plots/FigsX_autosomal_joint_analysis/scatter_to_cnr.pdf", width = 10, height = 6)
 
@@ -364,26 +375,28 @@ joint_data %>%
   dplyr::filter(Comparison != "Astro_3d") %>%
   group_by(name, Comparison) %>%
   summarize(cor = cor(value, log2FoldChange, use = "complete.obs")) %>%
-  ggplot(aes(x = Comparison, y = name)) + geom_point(aes(fill = cor), pch = 21, size = 10) + scale_fill_gradient2() + 
+  ggplot(aes(x = Comparison, y = name)) + geom_point(aes(fill = cor), pch = 21, size = 10) + scale_fill_gradient2() +
     theme_paper() + xlab("") + ylab("")
 ggsave("./Plots/FigsX_autosomal_joint_analysis/cor_to_cnr.pdf", width = 10, height = 6)
 
 joint_data %>%
-  # dplyr::filter(xchr == "X") %>%
   dplyr::filter(Comparison != "Astro_3d") %>%
   ggplot(aes(x = log2FoldChange, y = value, col = xchr)) +
-  geom_point(size = .01) + 
-  facet_wrap(~name+Comparison, nrow = 2) + theme_paper() + 
+  geom_point(size = .01) +
+  facet_wrap(~name+Comparison, nrow = 2) + theme_paper() +
   xlab("log2Foldchange (RNA)") + ylab("log2Foldchange (CnR)")
 ggsave("./Plots/FigsX_autosomal_joint_analysis/scatter_to_cnr_xchr.pdf", width = 10, height = 6)
 
 joint_data %>%
-  # dplyr::filter(xchr == "X") %>%
   dplyr::filter(Comparison != "Astro_3d") %>%
   group_by(name, Comparison, xchr) %>%
   summarize(cor = cor(value, log2FoldChange, use = "complete.obs")) %>%
-  ggplot(aes(x = Comparison, y = name, group = xchr)) + 
-    geom_point(aes(fill = cor), pch = 21, size = 10, position = position_dodge(width = .4)) + scale_fill_gradient2() + 
+  ggplot(aes(x = Comparison, y = name, group = xchr)) +
+    geom_point(aes(fill = cor), pch = 21, size = 10, position = position_dodge(width = .4)) + scale_fill_gradient2() +
     theme_paper() + xlab("") + ylab("")
 ggsave("./Plots/FigsX_autosomal_joint_analysis/cor_to_cnr_xchr.pdf", width = 10, height = 6)
+
+#
+source_data_3 <- list(df_plot_s3i, df_plot_s3l, df_plot_s3m, df_plot_s9f)
+saveRDS(source_data_3, "./ProcessedData/source_data/source_data_3_deg.rds")
 

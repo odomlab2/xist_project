@@ -11,9 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(warning=FALSE, message=FALSE)
 ```
 
-Use R version 4.2.0 for this project. 
-
-This script reproduces all plots for Figure 1 and associated supplementary figures in the Xist paper. Preprocessing of raw RNA sequencing data is done in ./Mapping/..., that yields allele-specific expression counts which are combined into a SingleCellExperiment (SCE) object in ./Preprocessing/generate_sce.R.
+This script reproduces most plots for Figure 1 and associated supplementary figures (S1-S4) in the Xist paper. Preprocessing of raw RNA sequencing data is done in ./Mapping/..., that yields allele-specific expression counts which are combined into a SingleCellExperiment (SCE) object in ./Preprocessing/generate_sce.R.
 We first load the necessary libraries and some helper functions: 
 
 ```{r load_libraries}
@@ -26,6 +24,7 @@ library(scran)
 library(scater)
 library(DESeq2)
 library(patchwork)
+library(xlsx)
 
 source("./xist_project/Scripts/General/auxiliary.R")
 source("./xist_project/Scripts/General/ase_functions.R")
@@ -34,7 +33,7 @@ escape_colors <- setNames(c("grey", "darkgreen", "orange"), nm = c("NPC-specific
 
 ```
 
-Now, read in the SCE, remove non-X genes and exclude lowly expressed genes. 
+Now, read in the SCE, remove non-X genes and exclude lowly expressed genes, and samples unnecessary for this analysis: 
 
 ```{r load_data}
 
@@ -50,7 +49,6 @@ data_with_autosomes <- data
 data <- data[seqnames(data) == "X", ]
 
 # This is the long-term washout experiment that we don't need after all
-# data <- data[ , (data$Experiment != "October2023" | data$SampleName == "CL30.7_21dDox_sorted.bam")  ]
 data <- data[ , data$Experiment != "October2023"  ]
 
 # Overview over all available samples
@@ -71,8 +69,6 @@ geo_metadata <- data.frame(
   Molecule = "total RNA", 
   SeqType = "paired end", 
   InstrumentModel = "NextSeq 2000", 
-  # fastq1 = paste0(fastq_path, data_here_filtered$SampleName, "_1.fq.gz"), 
-  # fastq2 = paste0(fastq_path, data_here_filtered$SampleName , "_2.fq.gz"), 
   fastq1_fileonly = paste0(data_here_filtered$SampleName, "_1.fq.gz"), 
   fastq2_fileonly = paste0(data_here_filtered$SampleName, "_2.fq.gz"), 
   processed_1 = "main_celllines_total_counts.txt", 
@@ -80,11 +76,6 @@ geo_metadata <- data.frame(
   processed_3 = "main_celllines_genome2_counts.txt", 
   processed_4 = "main_celllines_total_counts_normalized.txt"
 )
-
-# samples_not_used <- c("CL30.5dAUX", "CL31.5dAUX", "CL30.48hAUX.4DWO", "CL31.48hAUX.4DWO", "CL30.7dDOX.4DWO_AUX", "CL30.9dAUX", 
-#                       "CL31.7dDOX.4DWO_AUX", "CL31.9dAUX", "CL30.9dA7dD4dWO_AUX", "CL30.7_21dDaA_sorted.bam", 
-#                       "long_E6_14dDox_r1_sorted.bam", "long_E6_21dD7dWO_r1_sorted.bam", "long_E6_14dD14dWO_r1_22s003738_sorted.bam", 
-#                       "long_E6_21dD14dWO_r1_sorted.bam", "long_E6_21dDox_r1_sorted.bam", "long_E6_14dD.7dWO_r1_sorted.bam")
 
 samples_not_used <- c("CL30.5dAUX", "CL31.5dAUX", "CL30.48hAUX.4DWO", "CL31.48hAUX.4DWO", "CL30.7dDOX.4DWO_AUX", "CL30.9dAUX",
                       "CL31.7dDOX.4DWO_AUX", "CL31.9dAUX", "CL30.9dA7dD4dWO_AUX",
@@ -116,17 +107,13 @@ geo_metadata %>%
   pull(SampleName)
 
 # sample_antonia <- readxl::read_excel("~/Desktop/all_sampels_xist.xlsx", col_names = "test")
-
 write_csv(geo_metadata, "./ProcessedData/sample_overview_celllines.csv")
 
 data_upload <- data_here_filtered[ , ! colnames(data_here_filtered) %in% c(samples_not_used, samples_not_used_2, samples_not_used_3) ]
 
-write_delim(counts(data_upload), "./ProcessedData/geo_main/main_celllines_total_counts.txt",
-            delim = "\t")
-write_delim(counts_active(data_upload), "./ProcessedData/geo_main/main_celllines_genome1_counts.txt",
-            delim = "\t")
-write_delim(counts_inactive(data_upload), "./ProcessedData/geo_main/main_celllines_genome2_counts.txt",
-            delim = "\t")
+counts(data_upload) %>% rownames_to_column("Gene") %>% write_delim(., "./ProcessedData/geo_main/main_celllines_total_counts.txt", delim = "\t")
+counts_active(data_upload) %>% rownames_to_column("Gene") %>% write_delim(., "./ProcessedData/geo_main/main_celllines_genome1_counts.txt", delim = "\t")
+counts_inactive(data_upload) %>% rownames_to_column("Gene") %>% write_delim(., "./ProcessedData/geo_main/main_celllines_genome2_counts.txt", delim = "\t")
 
 ```
 
@@ -164,13 +151,11 @@ data.frame(rowRanges(data)) %>%
 
 ```
 
-For the supplement, generate plots showing a) how many genes we detect with sufficient allele-specific coverage and b) allelic densities of autosomal and X-linked genes. Finally, we look at escape measured by d-scores (d = inact / (inact + act) = B6 / (B6 / CAST)) in two cell lines. 
-
 ```{r supplement_read_statistics }
 
 data_baseline_x <- data[ , data$ConditionClean == "Control"]
 
-### Export count table for E6 for methylation analysis: 
+# Export expression level table for secondary analysis: 
 data.frame(
   total = rowSums(counts(data_baseline_x[,data_baseline_x$Clone == "E6"])), 
   active = rowSums(counts_active(data_baseline_x[,data_baseline_x$Clone == "E6"])), 
@@ -192,17 +177,8 @@ table(data_here$Experiment, data_here$Clone)
 # get d-scores across genes + samples
 ratios <- counts_inactive(data_baseline_x) / (counts_inactive(data_baseline_x) + counts_active(data_baseline_x))
 
-# Genes with average ASE > 0.8 in the control sample are likely mapping artefacts:
-# genes_out <- names(rowMeans(ratios, na.rm = T)[rowMeans(ratios, na.rm = T) > 0.8 & rownames(ratios) != "Xist"])
-# genes_out_na <- rownames( ratios[!apply(ratios, 1, function(x){!any(is.na(x))}), ] )
-# genes_out <- c(genes_out, genes_out_na)
-# ratios <- ratios[!rownames(ratios) %in% genes_out, ]
 ratios <- ratios[rownames(ratios) != "Xist", ]
 ratios[is.na(ratios)] <- 0 # there is a small number of genes for which we have no reads in individual samples of the revision dataset, we set these to 0 for simplicity here
-
-#colnames(ratios) <- c("CL30", "CL31", "E6 (Rep1)", "E6 (Rep2)", "E6 (Rep3)", "CL31.16", "CL30.7")
-# colnames(ratios) <- c("CL30", "CL31", "E6 (Rep1)", "E6 (Rep2)", "E6 (Rep3)", "CL31.16 (Rep1)", "CL30.7 (Rep1)", "CL31.16 (Rep2)", 
-#                       "CL30.7 (Rep2)", "CL30.7 (Rep3)", "CL31.16 (Rep3)", "CL30.7 (Rep4)")
 
 genes_show <- c("Xist", "Mecp2", "Kdm6a", "Kdm5c")
 genes_of_choice <- setNames(rep("", nrow(ratios)), rownames(ratios))
@@ -215,7 +191,9 @@ ratios %>%
   add_column("Clone" = paste0(data_here$Clone, " - ", data_here$Replicate)) %>%
   pivot_longer(-c(Condition, Clone)) %>%
   dplyr::filter(Condition == "Control") %>%
-  add_column(position = start(rowRanges(data_here[as.character(.$name), ]))) %>%
+  add_column(position = start(rowRanges(data_here[as.character(.$name), ]))) -> df_plot_s1f
+
+df_plot_s1f %>%
   ggplot(aes(Clone, y = reorder(name, position), fill = value)) + geom_tile(width = 0.9) +
     theme_paper() + theme(axis.text.x=element_text(angle = 90, hjust = 1, vjust = .5)) +
     theme(axis.ticks.x = element_blank()) + xlab("") + ylab("Chromosome position") +
@@ -234,25 +212,15 @@ ratios <- ratios[order(rowMeans(ratios), decreasing = T), ]
 escapees <- apply(ratios, 2, function(x){x > 0.1})
 escapees_per_clone <- apply(escapees, 2, function(x){rownames(escapees)[x]})
 escapees_per_clone <- lapply(escapees_per_clone, function(x){x[x != "Xist"]})
-# names(escapees_per_clone) <- c("CL30 - Rep1", "CL31 - Rep1", "E6 - Rep1", "E6 - Rep2", "E6 - Rep3",
-#                                "CL31 - Rep2", "CL30 - Rep2", "CL31 - Rep4", "CL30 - Rep3", "CL30 - Rep4", "CL31 - Rep5", "CL30 - Rep5")
 names(escapees_per_clone) <- c("CL30 - Rep1", "CL31 - Rep1", "E6 - Rep1", "E6 - Rep2", "E6 - Rep3",
                                "CL31 - Rep2", "CL30 - Rep2", "CL31 - Rep4", "CL30 - Rep4", "CL31 - Rep5", "CL30 - Rep5")
 
 # augment metaanalysis excel table with this information and save
 escapee_annotation <- read.csv("./ProcessedData/escape_metaanalysis_final.csv")
 
-# also add information on genes escapeing across replicates
-# escapees_per_clone_here <- escapees_per_clone
-# escapees_per_clone_here[["E6_merged"]] <- intersect(escapees_per_clone$`E6 - Rep1`, intersect(escapees_per_clone$`E6 - Rep2`, escapees_per_clone$`E6 - Rep3`))
-# escapees_per_clone_here[["CL30_merged"]] <- intersect(escapees_per_clone$`CL30 - Rep1`, escapees_per_clone$`CL30 - Rep2`)
-# escapees_per_clone_here[["CL31_merged"]] <- intersect(escapees_per_clone$`CL31 - Rep1`, escapees_per_clone$`CL31 - Rep2`)
 escapees_per_clone_here <- escapees_per_clone
 escapees_per_clone_here[["E6_merged"]] <- Reduce("intersect", list(escapees_per_clone_here$"E6 - Rep1", escapees_per_clone_here$"E6 - Rep2", 
                                                                    escapees_per_clone_here$"E6 - Rep3"))
-# escapees_per_clone_here[["CL30_merged"]] <- Reduce("intersect", list(escapees_per_clone_here$"CL30 - Rep1", escapees_per_clone_here$"CL30 - Rep2",
-#                                                                      escapees_per_clone_here$"CL30 - Rep3", escapees_per_clone_here$"CL30 - Rep4",
-#                                                                      escapees_per_clone_here$"CL30 - Rep5"))
 escapees_per_clone_here[["CL30_merged"]] <- Reduce("intersect", list(escapees_per_clone_here$"CL30 - Rep1", escapees_per_clone_here$"CL30 - Rep2",
                                                                      escapees_per_clone_here$"CL30 - Rep4",
                                                                      escapees_per_clone_here$"CL30 - Rep5"))
@@ -292,7 +260,9 @@ ratios %>%
   dplyr::filter(value > 0.1) %>%
   group_by(name) %>%
   mutate(escape_in_clones = n() >= 11) %>% 
-  add_column(escape_group = factor(rowData(data[.$name, ])$EscapeAnnotation, levels = c("Constitutive", "Facultative", "NPC-specific"))) %>%
+  add_column(escape_group = factor(rowData(data[.$name, ])$EscapeAnnotation, levels = c("Constitutive", "Facultative", "NPC-specific"))) -> df_plot_s1g
+
+df_plot_s1g %>%
   {
     ggplot(data = ., aes(x = Clone)) + geom_bar(aes(fill = escape_in_clones)) + theme_paper() + 
       theme(axis.text.x=element_text(angle = 90, hjust = 1)) + xlab("") + ylab("Number of genes with \n d-score > 0.1") +
@@ -324,7 +294,9 @@ ratios %>%
   dplyr::filter(value > 0.1) %>%
   group_by(name) %>%
   mutate(escape_in_clones = n() >= 11) %>%
-  add_column(escape_group = factor(rowData(data[.$name, ])$EscapeAnnotation, levels = c("Constitutive", "Facultative", "NPC-specific"))) %>%
+  add_column(escape_group = factor(rowData(data[.$name, ])$EscapeAnnotation, levels = c("Constitutive", "Facultative", "NPC-specific"))) -> df_plot_s1i
+
+df_plot_s1i %>%
   {
     ggplot(data = ., aes(x = Clone)) + geom_bar(aes(fill = escape_in_clones)) + theme_paper() + 
     theme(axis.text.x=element_text(angle = 90, hjust = 1)) + xlab("") + ylab("Number of genes with \n d-score > 0.1") + 
@@ -415,7 +387,9 @@ data.frame(
 
 xist_plot_data %>% group_by(Condition) %>% summarize(Expression = mean(Expression))
 
-xist_plot_data %>%
+xist_plot_data -> df_plot_1d
+
+df_plot_1d %>%
   ggplot(aes(x = Condition, y = Expression)) + 
   stat_summary(stat = "mean", geom = "bar", fill = "grey", col = "black") + 
     coord_flip() + xlab("") + ylab("Xist expression fold change \n (normalized to mean control)") + geom_jitter(size = 5, width = 0.1) + 
@@ -450,8 +424,11 @@ ratios %>%
   add_column("Clone" = paste0(data_here$Clone, " - ", data_here$Replicate)) %>%
   pivot_longer(-c(Condition, Clone)) %>%
   add_column(position = start(rowRanges(data_here[as.character(.$name), ]))) %>%
-  mutate(Condition = factor(Condition, levels = rev(c("Control", "Dox (3d)", "Dox (7d)", "Dox (14d)", "Dox (21d)")))) %>%
-  ggplot(aes(reorder(name, position), y = interaction(Clone, Condition, sep = " -- "), group = Clone, fill = value, col = value)) + geom_tile(width = 0.9) +
+  mutate(Condition = factor(Condition, levels = rev(c("Control", "Dox (3d)", "Dox (7d)", "Dox (14d)", "Dox (21d)")))) -> df_plot_s2a
+
+df_plot_s2a %>%
+  ggplot(aes(reorder(name, position), y = interaction(Clone, Condition, sep = " -- "), group = Clone, fill = value, col = value)) + 
+  geom_tile(width = 0.9) +
     scale_fill_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white") + 
     scale_colour_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white", guide = "none") + 
     scale_y_discrete(labels = genes_of_choice, position = "right") + 
@@ -476,6 +453,8 @@ ratios %>%
 
 makeGRangesFromDataFrame(data.frame(Chr = c("chrX", "chrX"), Start = c(min(to_plot$position), max(to_plot$position)), 
                                     End = c(min(to_plot$position) + 10000, max(to_plot$position) + 10000))) -> ranges_here
+
+to_plot -> df_plot_1e_pre
 
 p1 <- to_plot %>%
   group_by(Condition, name) %>%
@@ -558,7 +537,9 @@ ratios[e6_escapees, ] %>%
   mutate(Condition = factor(Condition, levels = (c("Control", paste0("Dox (", c(3, 7, 14, 21), " days)"))))) %>%
   add_column(escape_status = unlist(rowData(data_here)[match(.$name, rownames(data_here)), ]$EscapeAnnotation)) %>%
   mutate(escape_status = factor(escape_status, c("NPC-specific", "Facultative", "Constitutive"))) %>%
-  dplyr::filter(!is.na(escape_status)) %>%
+  dplyr::filter(!is.na(escape_status)) -> df_plot_1g
+
+df_plot_1g %>%
   group_by(name, Condition, escape_status, Dox) %>% ## !!!
   summarize(value = mean(value)) %>%
   ggplot(aes(x = value, y = factor(Condition, levels = rev(levels(Condition))), 
@@ -567,7 +548,6 @@ ratios[e6_escapees, ] %>%
     theme_paper() + xlab("Allelic ratio (Xi / (Xi + Xa))") + ylab("") + 
     theme(axis.text.x=element_text(angle = 45, hjust = 1)) + 
     scale_fill_manual(values = c("orange", "darkgreen", "grey")) + 
-    # labs(fill = "Escape Category") + 
     theme(legend.position = "None")
 ggplot2::ggsave("./Plots/Fig1/escapee_silencing_boxplots.pdf", width = 8, height = 10)
 
@@ -589,15 +569,15 @@ ratios[e6_escapees, ] %>%
   group_by(Condition, escape_status) %>%
   summarize(values = list(value)) %>%
   ungroup() %>%
-  tidyr::expand(nesting(Condition, escape_status, values), nesting(Condition, escape_status, values),  .name_repair = "unique") %>%
+  tidyr::expand(nesting(Condition, escape_status, values), nesting(Condition, escape_status, values), .name_repair = "unique") %>%
   setNames(tolower(gsub("\\.","", names(.)))) %>%
   dplyr::filter((condition1 != condition4) & (escape_status2 == escape_status5)) %>%
-  rowwise() %>%
+  rowwise() %>% 
+  mutate(condition1 = sort(c(condition1, condition4))[1], condition4 = sort(c(condition1, condition4))[2]) %>% dplyr::filter(condition1 != condition4) %>%
   mutate(pvals = wilcox.test(values3, values6)$p.value, paired = T) %>%
   ungroup() %>%
   mutate(padj = p.adjust(pvals, method = "BH")) %>% 
-  dplyr::select(-c("values3", "values6")) -> pval_results
-
+  dplyr::select(-c("values3", "values6", "paired")) -> pval_results
 write.csv(pval_results, "./ProcessedData/pvals_fig1e.csv")
 
 ratios[e6_escapees, ] %>%
@@ -610,33 +590,15 @@ ratios[e6_escapees, ] %>%
   mutate(Condition = factor(Condition, levels = (c("Control", paste0("Dox (", c(3, 7, 14, 21), " days)"))))) %>%
   add_column(escape_status = unlist(rowData(data_here)[match(.$name, rownames(data_here)), ]$EscapeAnnotation)) %>%
   mutate(escape_status = factor(escape_status, c("NPC-specific", "Facultative", "Constitutive"))) %>%
-  dplyr::filter(!is.na(escape_status)) %>%
+  dplyr::filter(!is.na(escape_status)) -> df_plot_s2b
+
+df_plot_s2b %>%
   ggplot(aes(x = value, y = factor(Condition, levels = rev(levels(Condition))), fill = Clone)) + 
     geom_boxplot(col = "black", outlier.color = "grey", position = position_dodge2(preserve = "single")) + 
     theme_paper() + xlab("Allelic Ratio (Xi / (Xi + Xa))") + 
     theme(axis.text.x=element_text(angle = 45, hjust = 1)) + 
     labs(fill = "Experiment") + ylab("")
 ggplot2::ggsave("./Plots/FigS1/escapee_silencing_boxplots_per_clone.pdf", width = 9, height = 6)
-
-ratios[e6_escapees, ] %>%
-  t() %>% data.frame() %>%
-  add_column("Dox" = data_here$ndDox) %>%
-  add_column("Clone" = paste0(data_here$Clone, " - ", data_here$Replicate)) %>%
-  pivot_longer(-c(Dox, Clone)) %>%
-  group_by(Clone) %>%
-  add_column(Condition = ifelse(.$Dox == 0, "Control", paste0("Dox (", .$Dox, " days)"))) %>%
-  mutate(Condition = factor(Condition, levels = (c("Control", paste0("Dox (", c(3, 7, 14, 21), " days)"))))) %>%
-  add_column(escape_status = unlist(rowData(data_here)[match(.$name, rownames(data_here)), ]$EscapeAnnotation)) %>%
-  mutate(escape_status = factor(escape_status, c("NPC-specific", "Facultative", "Constitutive"))) %>%
-  dplyr::filter(!is.na(escape_status)) %>%
-  group_by(Condition, name) %>%
-  summarize(value = mean(value)) %>%
-  ggplot(aes(x = value, y = factor(Condition, levels = rev(levels(Condition))))) + 
-    geom_boxplot(col = "black", fill = 'grey', outlier.color = "grey", position = position_dodge2(preserve = "single")) + 
-    theme_paper() + xlab("Allelic Ratio (Xi / (Xi + Xa))") + 
-    theme(axis.text.x=element_text(angle = 45, hjust = 1)) + 
-    labs(fill = "Experiment") + ylab("")
-ggplot2::ggsave("./Plots/FigS1/escapee_silencing_boxplots_aggregate.pdf", width = 9, height = 6)
 
 ratios[e6_escapees, ] %>%
   t() %>% data.frame(check.names = F) %>%
@@ -656,10 +618,12 @@ ratios[e6_escapees, ] %>%
   setNames(tolower(gsub("\\.","", names(.)))) %>%
   dplyr::filter((condition1 != condition3)) %>%
   rowwise() %>%
+  mutate(condition1 = sort(c(condition1, condition3))[1], condition3 = sort(c(condition1, condition3))[2]) %>% dplyr::filter(condition1 != condition3) %>%
   mutate(pvals = wilcox.test(values2, values4)$p.value, paired = T) %>%
   ungroup() %>%
+  dplyr::filter(!duplicated(pvals)) %>%
   mutate(padj = p.adjust(pvals, method = "BH")) %>% 
-  dplyr::select(-c("values2", "values4")) -> pval_results
+  dplyr::select(-c("values2", "values4", "paired")) -> pval_results
 write.csv(pval_results, "./ProcessedData/pvals_fig1e_aggregated_e6.csv")
 
 # Finally, we do statistical tests for each gene between timepoints and baseline, to see how many genes are significantly reduced
@@ -735,7 +699,9 @@ data_text_3 <- total_results %>%
   pivot_wider(names_from = hit_genes, values_from = n_genes) %>%
   mutate(total = total + n_genes)
 
-total_results %>% 
+total_results -> df_plot_s2i
+
+df_plot_s2i %>% 
   ggplot(aes(x = Treatment / Control)) + geom_histogram(aes(fill = p.adjust(pvalue) < 0.05), col = "black", alpha = 0.5) + 
     facet_wrap(~factor(Timepoint, c("3d", "7d", "14d", "21d")),  nrow = 1) + 
     scale_fill_manual(values = c("black", "grey")) + theme_paper() + xlab("Treatment / Control (Allelic Ratio)") + ylab("Number of genes") + 
@@ -759,7 +725,6 @@ data_here <- data_here[,data_here$Clone != "E6"]
 table(data_here$ConditionClean, data_here$Clone)
 
 ratios <- counts_inactive(data_here) / (counts_inactive(data_here) + counts_active(data_here))
-# ratios <- ratios[!rownames(ratios) %in% genes_out, ]
 
 # For Xist-expression, we need a scaling factor per sample to account for differences in seq depth
 size_factors <- colSums(counts(data_with_autosomes)) / colSums(counts(data_with_autosomes))[[1]]
@@ -782,7 +747,9 @@ data.frame(
   add_column(Condition = ifelse(.$Dox == 0, "Control", paste0("Dox (", .$Dox, " days)"))) %>%
   mutate(Condition = factor(Condition, levels = rev(c("Control", paste0("Dox (", c(3, 7, 14, 21), " days)"))))) -> xist_plot_data
 
-xist_plot_data %>%
+xist_plot_data -> df_plot_s2e
+
+df_plot_s2e %>%
   ggplot(aes(x = Condition, y = Expression)) + 
     stat_summary(aes(group = Clone_Identity), stat = "mean", geom = "bar", fill = "grey", col = "black", position = "dodge") + 
     coord_flip() + theme_paper() + 
@@ -808,26 +775,26 @@ genes_show <- c("Xist", "Mecp2", "Kdm6a", "Kdm5c")
 genes_of_choice <- setNames(rep("", nrow(ratios)), rownames(ratios))
 genes_of_choice[genes_show] <- genes_show
 
-ratios %>%
-  t() %>% data.frame(check.names = F) %>%
-  add_column("Condition" = data_here$ConditionClean) %>%
-  add_column("Clone" = paste0(data_here$Clone, " - ", data_here$Replicate)) %>%
-  pivot_longer(-c(Condition, Clone)) %>%
-  add_column(position = start(rowRanges(data_here[as.character(.$name), ]))) %>%
-  #dplyr::filter(value < 0.7) %>%
-  #dplyr::filter(Clone == "E6") %>%
-  mutate(Condition = factor(Condition, levels = rev(c("Control", "Dox (3d)", "Dox (7d)", "Dox (14d)", "Dox (21d)")))) %>%
-  ggplot(aes(reorder(name, position), y = interaction(Clone, Condition, sep = " -- "), group = Clone, fill = value, col = value)) + geom_tile(width = 0.9) +
-    scale_fill_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white") + 
-    scale_colour_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white", guide = 'none') + 
-    scale_y_discrete(labels = genes_of_choice, position = "right") + 
-    theme_paper() + 
-    theme(axis.ticks.x = element_blank(), panel.grid.major = element_blank()) + 
-    xlab("") + 
-    ylab("") + theme(panel.border = element_blank(), axis.line=element_blank()) + 
-    scale_x_discrete(labels = genes_of_choice, position = "bottom") +
-    labs(fill = "Allelic Ratio \n (Xi / (Xi + Xa))")
-ggplot2::ggsave("./Plots/FigS1/heatmap_ordered_by_clones_cl30_cl31.pdf", width = 15, height = 6)
+# ratios %>%
+#   t() %>% data.frame(check.names = F) %>%
+#   add_column("Condition" = data_here$ConditionClean) %>%
+#   add_column("Clone" = paste0(data_here$Clone, " - ", data_here$Replicate)) %>%
+#   pivot_longer(-c(Condition, Clone)) %>%
+#   add_column(position = start(rowRanges(data_here[as.character(.$name), ]))) %>%
+#   #dplyr::filter(value < 0.7) %>%
+#   #dplyr::filter(Clone == "E6") %>%
+#   mutate(Condition = factor(Condition, levels = rev(c("Control", "Dox (3d)", "Dox (7d)", "Dox (14d)", "Dox (21d)")))) %>%
+#   ggplot(aes(reorder(name, position), y = interaction(Clone, Condition, sep = " -- "), group = Clone, fill = value, col = value)) + geom_tile(width = 0.9) +
+#     scale_fill_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white") + 
+#     scale_colour_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white", guide = 'none') + 
+#     scale_y_discrete(labels = genes_of_choice, position = "right") + 
+#     theme_paper() + 
+#     theme(axis.ticks.x = element_blank(), panel.grid.major = element_blank()) + 
+#     xlab("") + 
+#     ylab("") + theme(panel.border = element_blank(), axis.line=element_blank()) + 
+#     scale_x_discrete(labels = genes_of_choice, position = "bottom") +
+#     labs(fill = "Allelic Ratio \n (Xi / (Xi + Xa))")
+# ggplot2::ggsave("./Plots/FigS1/heatmap_ordered_by_clones_cl30_cl31.pdf", width = 15, height = 6)
 
 ratios %>%
   t() %>% data.frame(check.names = F) %>%
@@ -837,8 +804,11 @@ ratios %>%
   add_column(position = start(rowRanges(data_here[as.character(.$name), ]))) %>%
   #dplyr::filter(value < 0.7) %>%
   #dplyr::filter(Clone == "E6") %>%
-  mutate(Condition = factor(Condition, levels = rev(c("Control", "Dox (3d)", "Dox (7d)", "Dox (14d)", "Dox (21d)")))) %>%
-  ggplot(aes(reorder(name, position), y = interaction(Clone, Condition, sep = " -- "), group = Clone, fill = value, col = value)) + geom_tile(width = 0.9) +
+  mutate(Condition = factor(Condition, levels = rev(c("Control", "Dox (3d)", "Dox (7d)", "Dox (14d)", "Dox (21d)")))) -> df_plot_s2c
+
+df_plot_s2c %>%
+  ggplot(aes(reorder(name, position), y = interaction(Clone, Condition, sep = " -- "), group = Clone, fill = value, col = value)) + 
+    geom_tile(width = 0.9) +
     scale_fill_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white") + 
     scale_colour_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white", guide = 'none') + 
     scale_y_discrete(labels = genes_of_choice, position = "right") + 
@@ -850,7 +820,6 @@ ratios %>%
     labs(fill = "Allelic Ratio \n (Xi / (Xi + Xa))") + 
     facet_wrap(~factor(ifelse(grepl("CL30", Clone), "CL30", "CL31")), scales = "free_y")
 ggplot2::ggsave("./Plots/FigS1/heatmap_ordered_by_clones_cl30_cl31_separated.pdf", width = 15, height = 6)
-
 
 escapees_cl30s <- list("CL30" = escapees_per_clone_here$CL30_merged,
                        "CL31" = escapees_per_clone_here$CL31_merged)
@@ -868,7 +837,9 @@ ratios %>%
   dplyr::filter(!is.na(escape_status)) %>%
   mutate(Clone = ifelse(grepl("CL30", Clone), "CL30", "CL31")) %>%
   group_by(Clone) %>%
-  dplyr::filter(name %in% escapees_cl30s[[unique(Clone)]]) %>%
+  dplyr::filter(name %in% escapees_cl30s[[unique(Clone)]]) -> df_plot_s2f
+
+df_plot_s2f %>%
   group_by(name, Condition, escape_status, Dox, Clone) %>% ## !!!
   summarize(value = mean(value)) %>%
   ggplot(aes(x = value, y = factor(Condition, levels = rev(levels(Condition))),  fill = factor(escape_status, levels = rev(levels(escape_status))))) + 
@@ -878,37 +849,6 @@ ratios %>%
     scale_fill_manual(values = escape_colors) + 
     labs(fill = "Escape Category") + ylab("") + facet_wrap(~Clone)
 ggplot2::ggsave("./Plots/FigS1/escapee_silencing_boxplots_cl30_cl31.pdf", width = 12, height = 6)
-
-# 
-# ratios %>%
-#   t() %>% data.frame(check.names = F) %>%
-#   add_column("Dox" = data_here$ndDox) %>%
-#   add_column("Clone" = paste0(data_here$Clone, " - ", data_here$Replicate)) %>%
-#   pivot_longer(-c(Dox, Clone)) %>%
-#   mutate(Clone = ifelse(grepl("CL30", Clone), "CL30", "CL31")) %>%
-#   group_by(Clone) %>%
-#   dplyr::filter(name %in% escapees_cl30s[[unique(Clone)]]) %>%
-#   add_column(Condition = ifelse(.$Dox == 0, "Control", paste0("Dox (", .$Dox, " days)"))) %>%
-#   mutate(Condition = factor(Condition, levels = (c("Control", paste0("Dox (", c(3, 7, 14, 21), " days)"))))) %>%
-#   add_column(escape_status = unlist(rowData(data_here)[match(.$name, rownames(data_here)), ]$EscapeAnnotation)) %>%
-#   mutate(escape_status = factor(escape_status, c("NPC-specific", "Facultative", "Constitutive"))) %>%
-#   dplyr::filter(!is.na(escape_status)) %>%
-#   group_by(name, Condition, escape_status, Dox) %>%
-#   summarize(value = mean(value)) %>%
-#   ungroup() %>%
-#   group_by(Condition, escape_status, Clone) %>%
-#   summarize(values = list(value)) %>%
-#   ungroup() %>%
-#   tidyr::expand(nesting(Condition, escape_status, values), nesting(Condition, escape_status, values),  .name_repair = "unique") %>%
-#   setNames(tolower(gsub("\\.","", names(.)))) %>%
-#   dplyr::filter((condition1 != condition4) & (escape_status2 == escape_status5)) %>%
-#   rowwise() %>%
-#   mutate(pvals = wilcox.test(values3, values6)$p.value, paired = T) %>%
-#   ungroup() %>%
-#   mutate(padj = p.adjust(pvals, method = "BH")) %>% 
-#   dplyr::select(-c("values3", "values6")) %>% 
-#   dplyr::select(c("condition1", "condition4", "escape_status5", "pvals", "padj")) -> pval_results
-# write.csv(pval_results, "./ProcessedData/figs2f.csv")
 
 ratios %>%
   t() %>% data.frame(check.names = F) %>%
@@ -934,6 +874,7 @@ ratios %>%
   setNames(tolower(gsub("\\.","", names(.)))) %>%
   dplyr::filter((condition1 != condition4) & (escape_status2 == escape_status5)) %>%
   rowwise() %>%
+  mutate(condition1 = sort(c(condition1, condition4))[1], condition4 = sort(c(condition1, condition4))[2]) %>% dplyr::filter(condition1 != condition4) %>%
   mutate(pvals = wilcox.test(values3, values6)$p.value, paired = T) %>%
   ungroup() %>%
   mutate(padj = p.adjust(pvals, method = "BH")) %>% 
@@ -965,6 +906,7 @@ ratios %>%
   setNames(tolower(gsub("\\.","", names(.)))) %>%
   dplyr::filter((condition1 != condition4) & (escape_status2 == escape_status5)) %>%
   rowwise() %>%
+  mutate(condition1 = sort(c(condition1, condition4))[1], condition4 = sort(c(condition1, condition4))[2]) %>% dplyr::filter(condition1 != condition4) %>%
   mutate(pvals = wilcox.test(values3, values6)$p.value, paired = T) %>%
   ungroup() %>%
   mutate(padj = p.adjust(pvals, method = "BH")) %>% 
@@ -973,29 +915,6 @@ ratios %>%
   add_column(Clone = "CL31") -> pval_results_cl31
 
 write.csv(rbind(pval_results_cl30, pval_results_cl31), "./ProcessedData/figs2f.csv")
-
-ratios %>%
-  t() %>% data.frame() %>%
-  add_column("Dox" = data_here$ndDox) %>%
-  add_column("Clone" = paste0(data_here$Clone, " - ", data_here$Replicate)) %>%
-  pivot_longer(-c(Dox, Clone)) %>%
-  add_column(Condition = ifelse(.$Dox == 0, "Control", paste0("Dox (", .$Dox, " days)"))) %>%
-  mutate(Condition = factor(Condition, levels = (c("Control", paste0("Dox (", c(3, 7, 14, 21), " days)"))))) %>%
-  add_column(escape_status = unlist(rowData(data_here)[match(.$name, rownames(data_here)), ]$EscapeAnnotation)) %>%
-  mutate(escape_status = factor(escape_status, c("NPC-specific", "Facultative", "Constitutive"))) %>%
-  dplyr::filter(!is.na(escape_status)) %>%
-  mutate(Clone = gsub("\\.[0-9]*", "", Clone)) %>%
-  group_by(Clone) %>%
-  dplyr::filter(name %in% escapees_per_clone[[unique(Clone)]]) %>%
-  mutate(Clone = ifelse(grepl("CL30", Clone), "CL30", "CL31")) %>%
-  group_by(Condition, name, Clone) %>%
-  summarize(value = mean(value)) %>%
-  ggplot(aes(x = value, y = factor(Condition, levels = rev(levels(Condition))))) + 
-    geom_boxplot(col = "black", fill = "grey", outlier.color = "grey", position = position_dodge2(preserve = "single")) + 
-    theme_paper() + xlab("Allelic Ratio (Xi / (Xi + Xa))") + 
-    theme(axis.text.x=element_text(angle = 45, hjust = 1)) + 
-    labs(fill = "Escape Category") + ylab("") + facet_wrap(~Clone)
-ggplot2::ggsave("./Plots/FigS1/escapee_silencing_boxplots_aggregate_cl30_cl31.pdf", width = 9, height = 6)
 
 ratios %>%
   t() %>% data.frame(check.names = F) %>%
@@ -1018,6 +937,7 @@ ratios %>%
   setNames(tolower(gsub("\\.","", names(.)))) %>%
   dplyr::filter((condition1 != condition3)) %>%
   rowwise() %>%
+  mutate(condition1 = sort(c(condition1, condition3))[1], condition3 = sort(c(condition1, condition3))[2]) %>% dplyr::filter(condition1 != condition3) %>%
   mutate(pvals = wilcox.test(values2, values4)$p.value, paired = T) %>%
   ungroup() %>%
   mutate(padj = p.adjust(pvals, method = "BH")) %>% 
@@ -1046,6 +966,7 @@ ratios %>%
   setNames(tolower(gsub("\\.","", names(.)))) %>%
   dplyr::filter((condition1 != condition3)) %>%
   rowwise() %>%
+  mutate(condition1 = sort(c(condition1, condition3))[1], condition3 = sort(c(condition1, condition3))[2]) %>% dplyr::filter(condition1 != condition3) %>%
   mutate(pvals = wilcox.test(values2, values4)$p.value, paired = T) %>%
   ungroup() %>%
   mutate(padj = p.adjust(pvals, method = "BH")) %>% 
@@ -1068,11 +989,15 @@ ratios %>%
   group_by(Clone) %>%
   dplyr::filter(name %in% escapees_per_clone[[unique(Clone)]]) %>%
   mutate(Replicate = str_extract(Clone, "Rep[0-9]")) %>%
-  ggplot(aes(x = value, y = factor(Condition, levels = rev(levels(Condition))), fill = Clone)) + 
-    geom_boxplot(col = "black", outlier.color = "grey", position = position_dodge2(preserve = "single")) + 
-    theme_paper() + xlab("Allelic Ratio (Xi / (Xi + Xa))") + 
-    theme(axis.text.x=element_text(angle = 45, hjust = 1)) + 
-    labs(fill = "Escape Category") + ylab("") + facet_wrap(~Replicate)
+  mutate(Clone2 = ifelse(grepl("CL30", Clone), "CL30", "CL31")) -> df_plot_s2d
+
+df_plot_s2d %>%
+  ggplot(aes(x = value, y = factor(Condition, levels = rev(levels(Condition))), fill = Clone)) +
+    geom_boxplot(col = "black", outlier.color = "grey", position = position_dodge2(preserve = "single")) +
+    theme_paper() + xlab("Allelic Ratio (Xi / (Xi + Xa))") +
+    theme(axis.text.x=element_text(angle = 45, hjust = 1)) +
+    labs(fill = "Clone") + ylab("") + facet_wrap(~Clone2)
+ggplot2::ggsave("./Plots/FigS1/escapee_silencing_boxplots_aggregate_cl30_cl31.pdf", width = 9, height = 6)
 
 ratios %>%
   t() %>% data.frame(check.names = F) %>%
@@ -1085,6 +1010,8 @@ ratios %>%
   mutate(Clone = ifelse(grepl("CL30", Clone), "CL30", "CL31")) %>%
   group_by(Clone) %>%
   dplyr::filter(name %in% escapees_cl30s[[unique(Clone)]]) -> to_plot
+
+to_plot -> df_plot_s2g
 
 # first cl30: 
 p1 <- to_plot %>%
@@ -1106,8 +1033,9 @@ p1 <- to_plot %>%
 p2 <- data.frame(Gene = escapees_cl30s$CL30,  
            Annotation = rowData(data)[escapees_cl30s$CL30, ]$EscapeAnnotation, 
            Position = start(rowRanges(data)[escapees_cl30s$CL30, ])) %>%
-  ggplot(aes(x = reorder(Gene, Position), y = 1, fill = Annotation)) + theme_void() + geom_tile(col = "black") + scale_fill_manual(values = escape_colors) + 
-  theme(legend.position = "None")
+  ggplot(aes(x = reorder(Gene, Position), y = 1, fill = Annotation)) + theme_void() + geom_tile(col = "black") + 
+    scale_fill_manual(values = escape_colors) + 
+    theme(legend.position = "None")
 
 p1 / p2 + plot_layout(heights = c(4, 0.2))
 ggplot2::ggsave("./Plots/FigS1/cl30_heatmap_ordered_only_escapees_by_position.pdf", width = 16, height = 4)
@@ -1140,8 +1068,9 @@ p1 <- to_plot %>%
 p2 <- data.frame(Gene = escapees_cl30s$CL31,  
            Annotation = rowData(data)[escapees_cl30s$CL31, ]$EscapeAnnotation, 
            Position = start(rowRanges(data)[escapees_cl30s$CL31, ])) %>%
-  ggplot(aes(x = reorder(Gene, Position), y = 1, fill = Annotation)) + theme_void() + geom_tile(col = "black") + scale_fill_manual(values = escape_colors) + 
-  theme(legend.position = "None")
+  ggplot(aes(x = reorder(Gene, Position), y = 1, fill = Annotation)) + theme_void() + geom_tile(col = "black") + 
+    scale_fill_manual(values = escape_colors) + 
+    theme(legend.position = "None")
 
 p1 / p2 + plot_layout(heights = c(4, 0.2))
 ggplot2::ggsave("./Plots/FigS1/cl31_heatmap_ordered_only_escapees_by_position.pdf", width = 16, height = 4)
@@ -1203,6 +1132,8 @@ data_text_2 <- total_results %>%
   mutate(total = total + n_genes) %>%
   add_column(x = 1, y = rep(c(20, 19, 18), 8))
 
+total_results -> df_plot_s2i
+
 total_results %>% 
   ggplot(aes(x = Treatment / Control)) + geom_histogram(aes(fill = p.adjust(pvalue) < 0.05), col = "black", alpha = 0.5) + 
     facet_wrap(~Clone + factor(Timepoint, c("3d", "7d", "14d", "21d")), nrow = 2) + 
@@ -1225,7 +1156,6 @@ We do this either for combined, only inactive and only active counts:
 data_here <- data[,data$ConditionClean %in% c("Control", "Dox (7d)")]
 data_here <- data_here[,data_here$Clone == "E6"]
 data_here <- data_here[unique(do.call("c", escapees_per_clone[grepl("E6", names(escapees_per_clone))])), ]
-# data_here <- data_here[!rownames(data_here) %in% genes_out, ]
 
 table(data_here$ConditionClean, data_here$Clone)
 
@@ -1261,7 +1191,8 @@ df_total <- results(deseq_total) %>%
   rownames_to_column("Gene") %>%
   add_column(Status=  "Total")
 
-rbind(df_inactive, rbind(df_active, df_total)) %>%
+rbind(df_inactive, rbind(df_active, df_total)) -> df_plot_s4a
+df_plot_s4a %>%
   ggplot(aes(x = baseMean, y = log2FoldChange, col = padj < 0.1)) + geom_point() + scale_x_log10() + 
     ggrepel::geom_text_repel(aes(label = Gene)) + xlab("Mean Expression (log normalized counts)") + ylab("log2 (7d dox / Control)") + 
     theme_paper() + facet_wrap(~Status) + scale_color_manual(values = c("black", "red")) + 
@@ -1273,7 +1204,8 @@ ggplot2::ggsave("./Plots/FigS1/escape_deseq_analysis.pdf", width = 9, height = 6
 df_combined <- rbind(df_inactive, rbind(df_active, df_total))
 df_combined$genomic_position <- start(rowRanges(data[df_combined$Gene, ]))
 
-df_combined %>% 
+df_combined -> df_plot_s4c
+df_plot_s4c %>% 
   ggplot(aes(x = 1, y = reorder(Gene, genomic_position), fill = log2FoldChange)) + geom_tile(col = "black") + facet_wrap(~Status) + 
     theme_paper() + scale_fill_gradient2() + geom_text(aes(label = ifelse(padj < 0.1, ".", "")), size = 10, nudge_y = 0.7) + 
     theme(axis.title.x=element_blank(),
@@ -1323,7 +1255,9 @@ df_total <- results(deseq_total) %>%
   rownames_to_column("Gene") %>%
   add_column(Status=  "Total")
 
-rbind(df_inactive, rbind(df_active, df_total)) %>%
+rbind(df_inactive, rbind(df_active, df_total)) -> df_plot_s4b
+
+df_plot_s4b %>%
   ggplot(aes(x = baseMean, y = log2FoldChange, col = padj < 0.1)) + geom_point() + scale_x_log10() + 
     ggrepel::geom_text_repel(aes(label = Gene)) + xlab("Mean Expression (log normalized counts)") + ylab("log2 (7d dox / Control)") + 
     theme_paper() + facet_wrap(~Status) + scale_color_manual(values = c("black", "red")) + 
@@ -1332,11 +1266,12 @@ rbind(df_inactive, rbind(df_active, df_total)) %>%
 ggplot2::ggsave("./Plots/FigS1/escape_deseq_analysis_21d.pdf", width = 9, height = 6)
 
 # Visualize also as a heatmap: 
-
 df_combined <- rbind(df_inactive, rbind(df_active, df_total))
 df_combined$genomic_position <- start(rowRanges(data[df_combined$Gene, ]))
 
-df_combined %>% 
+df_combined -> df_plot_s4d
+
+df_plot_s4d %>% 
   ggplot(aes(x = 1, y = reorder(Gene, genomic_position), fill = log2FoldChange)) + geom_tile(col = "black") + facet_wrap(~Status) + 
     theme_paper() + scale_fill_gradient2() + geom_text(aes(label = ifelse(padj < 0.1, ".", "")), size = 10, nudge_y = 0.7) + 
     theme(axis.title.x=element_blank(),
@@ -1384,7 +1319,9 @@ results(deseq_autosomes) %>%
   data.frame() %>%
   rownames_to_column("Gene") -> df_plot
 
-df_plot %>%
+df_plot -> df_plot_s3f
+
+df_plot_s3f %>%
   dplyr::filter(!is.na(padj)) %>%
   dplyr::filter(baseMean > 10) %>%
   {
@@ -1450,148 +1387,6 @@ ggplot2::ggsave("./Plots/FigS1/DEGs_autosomal_Xist_21d.pdf", height = 5, width =
 
 saveRDS(df_plot, "./ProcessedData/autosomal_de_analysis_21d_dox.rds")
 
-### 
-# data_here <- data_with_autosomes[,data_with_autosomes$Clone != "E6" & 
-#                                    data_with_autosomes$Condition %in% c("Aux_0_Dox_0_WO_0_WOAuxNO", "Aux_0_Dox_7_WO_0_WOAuxNO")]
-# 
-# data_here <- data_here[seqnames(rowRanges(data_here)) != "X", ]
-# 
-# deseq_autosomes <- DESeqDataSetFromMatrix(countData = counts(data_here), colData = colData(data_here), design = ~ Condition)
-# deseq_autosomes <- DESeq(deseq_autosomes)
-# deseq_autosomes <- logNormCounts(deseq_autosomes)
-# deseq_autosomes_res <- results(deseq_autosomes) %>% data.frame()
-# 
-# deseq_autosomes_res %>%
-#   dplyr::arrange(padj) %>%
-#   dplyr::filter(padj < 0.1)
-# 
-# results(deseq_autosomes) %>%
-#   data.frame() %>%
-#   rownames_to_column("Gene") -> df_plot
-# 
-# df_plot %>% 
-#   dplyr::filter(!is.na(padj)) %>%
-#   dplyr::filter(baseMean > 10) %>%
-#   {
-#   ggplot(data = ., aes(x = baseMean, y = log2FoldChange, col = padj < 0.1)) + geom_point() + scale_x_log10() + 
-#     ggrepel::geom_text_repel(aes(label = Gene), data = . %>% dplyr::filter(padj < .1)) + 
-#     xlab("Mean Expression (log normalized counts)") + ylab("log2 (7d dox / Control)") + 
-#     theme_paper() + scale_color_manual(values = c("black", "red")) + 
-#     labs(color = "Significant change \n (at 10% FDR)") + 
-#     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
-#     ggtitle("Autosomal effect after 7d dox (CL30s)")
-# }
-# ggplot2::ggsave("./Plots/FigS1/DEGs_autosomal_Xist_CL30s.pdf", height = 5, width = 10)
-
-### We finally check if there is a change in allelic ratios on the autosomes
-# data_with_autosomes_here <- data_with_autosomes[ , data_with_autosomes$ConditionClean %in% c("Control", "Dox (7d)") & data_with_autosomes$Clone == "E6" ]
-# 
-# total_allelic_censoring <- counts_active(data_with_autosomes_here) + counts_inactive(data_with_autosomes_here)
-# allelic_ratios <- counts_active(data_with_autosomes_here) / (counts_active(data_with_autosomes_here) + counts_inactive(data_with_autosomes_here))
-# allelic_ratios[data_with_autosomes_here < 50] <- NaN
-# 
-# data.frame(
-#   Gene = rownames(allelic_ratios), 
-#   Chromosome = as.character(seqnames(rowRanges(data_with_autosomes_here))), 
-#   XChromosome = ifelse(as.character(seqnames(rowRanges(data_with_autosomes_here))) == "X", "X", "Autosome"),
-#   ratios_control = rowMeans(allelic_ratios[ , data_with_autosomes_here$ConditionClean == "Control" ], na.rm = T), 
-#   ratios_dox = rowMeans(allelic_ratios[ , data_with_autosomes_here$ConditionClean == "Dox (7d)" ], na.rm = T)
-# ) %>% {
-#   ggplot(data = ., aes(x = ratios_control, y = ratios_dox)) + geom_point(size = .1) + 
-#     facet_wrap(~XChromosome) + geom_abline()
-# }
-# 
-# data.frame(
-#   Gene = rownames(allelic_ratios), 
-#   Chromosome = as.character(seqnames(rowRanges(data_with_autosomes_here))), 
-#   ratios_control = rowMeans(allelic_ratios[ , data_with_autosomes_here$ConditionClean == "Control" ], na.rm = T), 
-#   ratios_dox = rowMeans(allelic_ratios[ , data_with_autosomes_here$ConditionClean == "Dox (7d)" ], na.rm = T)
-# ) %>% {
-#   ggplot(data = ., aes(x = ratios_control, y = ratios_dox)) + geom_point(size = .1) + 
-#     facet_wrap(~Chromosome) + geom_abline()
-# }
-# 
-# fit_vglm <- function(gene, group1, group2){
-#   
-#   library(VGAM)
-#   
-#   fit_df <- rbind(
-#     data.frame(counts_ref = as.numeric(counts_active(data_with_autosomes_here)[gene, data_with_autosomes_here$ConditionClean == group1]), 
-#                counts_alt = as.numeric(counts_inactive(data_with_autosomes_here)[gene, data_with_autosomes_here$ConditionClean == group1]), 
-#                condition = group1), 
-#     data.frame(counts_ref = as.numeric(counts_active(data_with_autosomes_here)[gene, data_with_autosomes_here$ConditionClean == group2]), 
-#                counts_alt = as.numeric(counts_inactive(data_with_autosomes_here)[gene, data_with_autosomes_here$ConditionClean == group2]), 
-#                condition = group2)
-#   )
-# 
-#     tryCatch({
-#     model_condition <- VGAM::vglm(cbind(counts_ref, counts_alt) ~ condition, 
-#                                  betabinomial, trace = FALSE, data = fit_df)
-#     model_constant <- VGAM::vglm(cbind(counts_ref, counts_alt) ~ 1, 
-#                                  betabinomial, trace = FALSE, data = fit_df)
-#     
-#     return(list(gene, model_constant, model_condition))
-#     
-#   }, error=function(cond) {
-#     message(paste("Not converged"))
-#     # Choose a return value in case of error
-#     model_celltype <<- NA
-#     model_constant <<- NA
-#     return(c(gene, model_constant, model_condition))
-#   })
-# }
-# 
-# genes_check <- rownames(data_with_autosomes_here)
-# results_allelic_7d <- lapply(genes_check, function(x){print(x); fit_vglm(x, "Control", "Dox (7d)")})
-# 
-# pvals <- lapply(results_allelic_7d, function(x){
-#   gene = x[[1]]
-#   model_1 = x[[2]]
-#   model_2 = x[[3]]
-#   if (is.na(model_1)){
-#     return(c(gene, NA))
-#   }
-#   else {
-#     return(c(gene, lrtest(model_1, model_2)@Body[2, 5]))
-#   }
-# })
-# 
-# pvals_df = data.frame(do.call("rbind", pvals))
-# pvals_df$X2 <- as.numeric(pvals_df$X2)
-# rownames(pvals_df) <- pvals_df$X1
-# colnames(pvals_df) <- c("Gene", "pval")
-# pvals_df$chromosome <- as.character(seqnames(rowRanges(data_with_autosomes_here[pvals_df$Gene, ])))
-# 
-# pvals_df %>% 
-#   mutate(is_x_chromosome = chromosome == "X") %>%
-#   ggplot(aes(x = pval)) + geom_histogram() + facet_wrap(~is_x_chromosome)
-# 
-# pvals_df %>% 
-#   mutate(is_x_chromosome = chromosome == "X") %>%
-#   mutate(padj = p.adjust(pval, method = "BH")) %>%
-#   dplyr::filter(padj < .1) %>%
-#   ggplot(aes(is_x_chromosome)) + geom_bar()
-# 
-# data.frame(
-#   Gene = rownames(allelic_ratios), 
-#   Chromosome = as.character(seqnames(rowRanges(data_with_autosomes_here))), 
-#   ratios_control = rowMeans(allelic_ratios[ , data_with_autosomes_here$ConditionClean == "Control" ], na.rm = T), 
-#   ratios_dox = rowMeans(allelic_ratios[ , data_with_autosomes_here$ConditionClean == "Dox (7d)" ], na.rm = T)
-# ) %>% 
-#   mutate(pval = pvals_df[Gene, ]$pval) %>% 
-#   mutate(padj = p.adjust(pval, method = "BH")) %>% 
-#   dplyr::filter(!is.na(padj)) %>% 
-#   arrange(as.numeric(padj < .1)) %>% {
-#   ggplot(data = ., aes(x = ratios_control, y = ratios_dox, fill = padj < .1)) + 
-#     # geom_point(size = .5, aes(alpha = padj < .1)) + 
-#     geom_point(aes(size = padj < .1), pch = 21) + 
-#     facet_wrap(~Chromosome) + geom_abline() + scale_fill_manual(values = c("grey", "red")) + theme_paper() + 
-#     xlab("Allelic Ratio (Control)") + ylab("Allelic Ratio (7d Dox)") + 
-#     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
-#     scale_size_discrete(range = c(.1, 2))
-#   }
-# ggplot2::ggsave("./Plots/Revisions/autosomal_allelic_analysis_7d.pdf", height = 10, width = 10)
-
 ```
 
 Finally, we test whether the strength of silencing is associated with the genes expression level or escape level
@@ -1601,7 +1396,6 @@ Finally, we test whether the strength of silencing is associated with the genes 
 data_here <- data[,data$ConditionClean %in% c("Control", "Dox (7d)")]
 
 ratios <- counts_inactive(data_here) / (counts_inactive(data_here) + counts_active(data_here))
-# ratios <- ratios[!rownames(ratios) %in% genes_out, ]
 ratios <- ratios[unique(do.call("c", escapees_per_clone[grepl("E6", names(escapees_per_clone))])), ]
 
 data_here <- data_here[unique(do.call("c", escapees_per_clone[grepl("E6", names(escapees_per_clone))])), ]
@@ -1610,37 +1404,27 @@ data_here <- data_here[unique(do.call("c", escapees_per_clone[grepl("E6", names(
 escape_colors <- setNames(c("grey", "darkgreen", "orange"), nm = c("NPC-specific", "Facultative", "Constitutive"))
 
 df_here <- data.frame(
-  EscapeCategory = rowData(data_here)$EscapeAnnotation, 
-  BasalExpressionLevel = rowMeans(counts(data_here[,data_here$ConditionClean == "Control"])), 
-  BasalInactiveExpressionLevel = rowMeans(counts_inactive(data_here[,data_here$ConditionClean == "Control"])), 
-  BasalEscape = rowMeans(ratios[,data_here$ConditionClean == "Control"]), 
+  EscapeCategory = rowData(data_here)$EscapeAnnotation,
+  BasalExpressionLevel = rowMeans(counts(data_here[,data_here$ConditionClean == "Control"])),
+  BasalInactiveExpressionLevel = rowMeans(counts_inactive(data_here[,data_here$ConditionClean == "Control"])),
+  BasalEscape = rowMeans(ratios[,data_here$ConditionClean == "Control"]),
   EscapeDifference = rowMeans(ratios[,data_here$ConditionClean == "Dox (7d)"]) - rowMeans(ratios[,data_here$ConditionClean == "Control"])
-) 
+)
 
-df_here %>% ggplot(aes(x = BasalExpressionLevel, y = BasalEscape, col = EscapeCategory)) + 
+df_here %>% ggplot(aes(x = BasalExpressionLevel, y = BasalEscape, col = EscapeCategory)) +
   geom_point() + scale_x_log10() + theme_paper() + scale_color_manual(values = escape_colors) + geom_hline(yintercept = 0.5, linetype = 'dashed', col = "grey")
+# 
+# df_here %>% ggplot(aes(x = BasalExpressionLevel, y = BasalEscape, col = EscapeCategory)) + 
+#   geom_point() + scale_x_log10() + theme_paper() + scale_color_manual(values = escape_colors) + 
+#     geom_smooth(method = 'lm', linetype = 'dashed')  + 
+#     geom_hline(yintercept = 0.5, linetype = 'dashed', col = "grey")
+# ggplot2::ggsave("./Plots/FigS1/basal_exp_vs_basal_escape.pdf", width = 9, height = 6)
 
-df_here %>% ggplot(aes(x = BasalExpressionLevel, y = BasalEscape, col = EscapeCategory)) + 
-  geom_point() + scale_x_log10() + theme_paper() + scale_color_manual(values = escape_colors) + 
-    geom_smooth(method = 'lm', linetype = 'dashed')  + 
-    geom_hline(yintercept = 0.5, linetype = 'dashed', col = "grey")
-ggplot2::ggsave("./Plots/FigS1/basal_exp_vs_basal_escape.pdf", width = 9, height = 6)
-
-df_here %>% ggplot(aes(x = BasalExpressionLevel, y = EscapeDifference, col = EscapeCategory)) + 
-  geom_point() + scale_x_log10() + theme_paper() + scale_color_manual(values = escape_colors)
+df_here -> df_plot_s3c
 
 df_here %>% ggplot(aes(x = BasalExpressionLevel, y = EscapeDifference, col = EscapeCategory)) + 
   geom_point() + scale_x_log10() + theme_paper() + scale_color_manual(values = escape_colors) + geom_smooth(method = 'lm', linetype = 'dashed')
 ggplot2::ggsave("./Plots/FigS1/basal_exp_vs_basal_escape_diff.pdf", width = 9, height = 6)
-
-df_here %>% ggplot(aes(x = BasalInactiveExpressionLevel, y = BasalEscape, col = EscapeCategory)) + 
-  geom_point() + scale_x_log10() + theme_paper() + scale_color_manual(values = escape_colors)
-
-df_here %>% ggplot(aes(x = BasalInactiveExpressionLevel, y = BasalEscape, col = EscapeCategory)) + 
-  geom_point() + scale_x_log10() + theme_paper() + scale_color_manual(values = escape_colors) + geom_smooth(method = 'lm', linetype = 'dashed')
-
-df_here %>% ggplot(aes(x = BasalInactiveExpressionLevel, y = EscapeDifference, col = EscapeCategory)) + 
-  geom_point() + scale_x_log10() + theme_paper() + scale_color_manual(values = escape_colors)
 
 df_here %>% ggplot(aes(x = BasalInactiveExpressionLevel, y = EscapeDifference, col = EscapeCategory)) + 
   geom_point() + scale_x_log10() + theme_paper() + scale_color_manual(values = escape_colors) + geom_smooth(method = 'lm', linetype = 'dashed')
@@ -1737,10 +1521,6 @@ merged_df <- data.frame(
   BIC_native = all_coefs$V5,
   BIC_offset = all_coefs_offset$V6
 )
-  # mutate(BIC_native = 2 * loglik) %>%
-  # # mutate(BIC_offset = 2 * loglik_off)
-  # mutate(BIC_native_test = 3 * log(ncol(data_here)) - 2 * loglik) %>%
-  # mutate(BIC_offset_test = 4 * log(ncol(data_here)) - 2 * loglik_off) ### still dont get it -- fix this
 
 # These genes fail convergence - all but 5 have very low r2 in the non-offset model
 merged_df %>%
@@ -1772,6 +1552,7 @@ merged_df %>%
     labs(col = "Escape category") + scale_color_manual(values = escape_colors)
 
 # We now ask which genes fit the offset vs the native model better (supplement)
+merged_df -> df_plot_s3a
 merged_df %>%
   ggplot(aes(x = - BIC_native, - BIC_offset, col = category)) + geom_point() + geom_abline() +
   ggrepel::geom_text_repel(aes(label = gene)) + theme_paper() +  xlab("negative BIC exponential decay model") +  
@@ -1780,6 +1561,7 @@ merged_df %>%
 ggplot2::ggsave("./Plots/FigS1/bic_model_choice.pdf", width = 9, height = 9)
 
 # how many genes have the +b model fit better? 
+table(merged_df$category)
 table(merged_df$BIC_native - merged_df$BIC_offset > 0, merged_df$category)
 
 merged_df %>%
@@ -1819,6 +1601,8 @@ iqr = function(z, lower = 0.25, upper = 0.75) {
     ymax = quantile(z, upper)
   )
 }
+
+merged_df -> df_plot_1i -> df_plot_1k
 
 merged_df %>% 
   dplyr::filter(!is.na(category)) %>% {
@@ -2144,7 +1928,7 @@ ggplot2::ggsave("./Plots/FigS1/Rebuttal/correlation_halflife_e6_to_cl30s.pdf", w
 
 # Here we can check individual genes
 
-plot_decay_gene <- function(data_here, all_coefs, all_coefs_offset, gene, save_plot = F, path = "./"){
+plot_decay_gene <- function(data_here, all_coefs, all_coefs_offset, gene, save_plot = F, path = "./", return_data = F){
 
   df_here <- data.frame(
     active = as.numeric(counts_active(data_here)[gene, ]) + 1, 
@@ -2161,7 +1945,13 @@ plot_decay_gene <- function(data_here, all_coefs, all_coefs_offset, gene, save_p
     inactive = as.numeric(counts_inactive(data_here)[gene, ]) + 1, 
     timepoint = as.numeric(data_here$ndDox), 
     experiment = data_here$Experiment
-  ) %>% mutate(rates = inactive / (inactive + active)) %>%
+  ) %>% mutate(rates = inactive / (inactive + active)) -> data_to_plot
+  
+  if (return_data){
+    return(data_to_plot)
+  }
+  
+  data_to_plot %>%
     ggplot(aes(x = timepoint, y = rates)) + geom_point() + theme_paper() + 
       geom_function(fun = function(x, 
                                    a = df_native[gene, ]$a, 
@@ -2192,6 +1982,13 @@ plot_decay_gene <- function(data_here, all_coefs, all_coefs_offset, gene, save_p
 plot_decay_gene(data_here_e6_plot, merged_df_e6, merged_df_e6, "Ddx3x", save_plot = F)
 plot_decay_gene(data_here_cl30_plot, merged_df_cl30, merged_df_cl30, "Ddx3x", save_plot = F)
 plot_decay_gene(data_here_cl31_plot, merged_df_cl31, merged_df_cl31, "Ddx3x", save_plot = F)
+
+plot_decay_gene(data_here_e6_plot, merged_df_e6, merged_df_e6, "Mecp2", save_plot = T)
+plot_decay_gene(data_here_e6_plot, merged_df_e6, merged_df_e6, "Pbdc1", save_plot = T)
+
+df_plot_s3b_1 <- plot_decay_gene(data_here_e6_plot, merged_df_e6, merged_df_e6, "Mecp2", return_data = T)
+df_plot_s3b_2 <- plot_decay_gene(data_here_e6_plot, merged_df_e6, merged_df_e6, "Pbdc1", return_data = T)
+df_plot_s3b <- rbind(cbind(df_plot_s3b_1, gene = "Mecp2"), cbind(df_plot_s3b_2, gene = "Pbdc1"))
 
 # plot_decay_gene("Pbdc1", save_plot = T, path = "./Plots/FigS1/gene_plots/")
 # plot_decay_gene("Med14", save_plot = T, path = "./Plots/FigS1/gene_plots/")
@@ -2332,6 +2129,16 @@ color_names <- as.character(1:length(color_names))
 
 fill_colors_here <- c(RColorBrewer::brewer.pal(name = "Paired", n = 11), "white")
 
+to_plot -> df_plot_1f_1
+data.frame(Gene = e6_escapees,
+                 Clusterings = as.character(clusterings[e6_escapees]), 
+                 Position = start(rowRanges(data)[e6_escapees, ])) %>%
+  group_by(Clusterings) %>% mutate(ngenes = n()) %>%
+  mutate(Clusterings = ifelse(ngenes < 3, "Singleton", Clusterings)) %>%
+  mutate(Clusterings = ifelse(is.na(Clusterings), "Singleton", Clusterings)) %>% rename(Gene = "name") -> df_plot_1f_2
+
+df_plot_1f <- df_plot_1f_1 %>% right_join(df_plot_1f_2, by = "name")
+
 p6 <- data.frame(Gene = e6_escapees,
                  Clusterings = as.character(clusterings[e6_escapees]), 
                  Position = start(rowRanges(data)[e6_escapees, ])) %>%
@@ -2357,10 +2164,11 @@ p6 <- data.frame(Gene = e6_escapees,
 p1 / p2 / p3 / p6 + plot_layout(heights = c(3, 0.4, 0.4, 0.4, 0.4))
 ggplot2::ggsave("./Plots/Fig1/curve_fitting_heatmap.pdf", width = 25, height = 6)
 
-
 p1_full_save
 
 all_genes_here <- c(setNames(as.character(clusterings[e6_escapees]), e6_escapees), setNames(rep("NA", sum(!rownames(ratios) %in% e6_escapees)), nm = rownames(ratios)[!rownames(ratios) %in% e6_escapees]))
+
+df_plot_1e <- df_plot_1e_pre %>% full_join(df_plot_1f_2, by = "name")
 
 p1_anno <- data.frame(
   Gene = rownames(ratios), 
@@ -2416,7 +2224,9 @@ df_combs %>%
   mutate(condition = ifelse(clustering.x == clustering.y, "intra", "inter")) -> comb_results
 
 comb_results %>% 
-  mutate(condition = ifelse(condition == "inter", "Random genes", "Adjacent genes")) %>%
+  mutate(condition = ifelse(condition == "inter", "Random genes", "Adjacent genes")) -> df_plot_s3e
+
+df_plot_s3e %>%
   ggplot(aes(x = condition, y = halftime_diff)) + geom_boxplot(fill = "grey") + 
     ggpubr::stat_compare_means(label = "p.signif") + 
     theme_bw(base_size = 30) + xlab("Comparison") + 
@@ -2434,6 +2244,8 @@ test_df %>%
   summarize(halftime_mean = mean(halftime), sd_halftime = sd(halftime), position = mean(position), n_genes = n(), genes = list(gene)) %>%
   dplyr::filter(n_genes > 2) %>%
   mutate(clustering = rank(clustering)) -> summarize_data
+
+summarize_data -> df_plot_1j
 
 summarize_data %>%
   ggplot(aes(x = position, y = halftime_mean, fill = factor(clustering))) + 
@@ -2525,5 +2337,18 @@ ratios[c("Xist", escapees_cl30s$CL31), ] %>%
   pivot_wider(names_from = Condition, values_from = value) %>% 
   arrange(name) %>%
   write.csv("./ProcessedData/dscores_dox_cl31.csv")
+
+```
+
+
+```{r asdasd}
+# combine source data
+
+source_data_1 <- list(df_plot_1d, df_plot_1e, df_plot_1f, df_plot_1g, df_plot_1i, df_plot_1j, df_plot_1k, 
+                      df_plot_s1f, df_plot_s1g, df_plot_s1i, # 8, 9, 10
+                      df_plot_s2a, df_plot_s2b, df_plot_s2c, df_plot_s2d, df_plot_s2e, df_plot_s2f, df_plot_s2g, df_plot_s2g, df_plot_s2i, # 11 - 19
+                      df_plot_s3a, df_plot_s3b, df_plot_s3c, df_plot_s3c, df_plot_s3e, df_plot_s3f, # 20 - 25
+                      df_plot_s4a, df_plot_s4b, df_plot_s4c, df_plot_s4d) # 26 - 29
+saveRDS(source_data_1, "./ProcessedData/source_data/source_data_1.rds")
 
 ```

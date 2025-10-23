@@ -1,0 +1,1143 @@
+---
+title: "Fig4_Methylation_revisions"
+output: html_document
+date: '2025-02-11'
+editor_options: 
+  chunk_output_type: console
+---
+
+This script performs analysis of DNA methylation data in E6 after Xist treatment. 
+The data is preprocessed using Bismarck within the nextflow pipeline methylSeq, with specific options for EM-Seq data. 
+We then use SNP-split to partition reads by parental genome and bismarck methylcoverage to extract methylation signal from allele-specific bam files.
+
+```{r load_packages}
+
+library(methylKit)
+library(ggplot2)
+library(tidyverse)
+
+setwd("~/Desktop/PhD/from_dkfz_cluster/antonia/methylation_data/")
+# source("./Scripts/General/auxiliary.R")
+
+```
+
+```{r load_data}
+
+# project.dir <- "~/to_omics/projects/AntoniaESCProject/allele-specific_methylation/"
+# data.dir <- "~/to_omics/projects/AntoniaESCProject/allele-specific_methylation/analysis_practice/test_output/bismark/alignments/"
+# data.dir <- "~/to_omics/projects/AntoniaESCProject/allele-specific_methylation/analysis_practice/test_output/bismark/methylation_calls/methylation_coverage/"
+# 
+# setwd(project.dir)
+# 
+# all.files <- list.files(data.dir, full.names = T)
+# 
+# # always make sure we have files as Control, 7d Xist, 21d Xist
+# all.files <- all.files[c(1, 3, 2)]
+# all.files
+
+```
+
+Use methRead from the methylKit package to read in coverage data. 
+The mincov argument controls if sites with < n reads are included in the dataset, since the average coverage is ~10x, we put this rather low. 
+
+```{r new_cell}
+
+# myobj=methRead(as.list(all.files),
+#                  sample.id=list("control", "short_xist", "long_xist"),
+#                  assembly="mm10",
+#                  treatment=c(0,1,2),
+#                  context="CpG",
+#                  pipeline = "bismarkCoverage", 
+#                  mincov = 5
+# )
+
+```
+
+There is a smallish difference in coverage across the samples, consider that when / if resequencing
+
+```{r new_cell}
+
+# data.frame("Samples" = factor(c("Control", "Short_Xist", "Long_Xist"), levels = c("Control", "Short_Xist", "Long_Xist")),
+#            "CpGs" = c(dim(myobj[[1]])[[1]], dim(myobj[[2]])[[1]], dim(myobj[[3]])[[1]])) %>%
+#   ggplot(aes(x = Samples, y = CpGs)) + geom_bar(stat = "identity")
+
+```
+
+Now we check the distribution of beta-values for autosomes and the X-chromosome. 
+This one looks like a good reference for what to expect (in an adult tissue): https://www.nature.com/articles/s41598-018-28356-3
+
+For the autosomes, the data looks as expected - most sites are methylated, some are unmethylated / show intermediate methylation. 
+For the X, distribution looks weird - it should be similar compared to autosomes, with a little bit fewer fully methylated sites as the Xi is broadly only partly methylated. 
+However we see almost a uniform distribution across sites, which is very odd. 
+
+Across samples, global methylation patterns look similar. 
+
+```{r new_cell}
+
+# rbind(cbind(myobj[[1]] %>% data.frame(), "Sample" = "control"),
+#       cbind(myobj[[2]] %>% data.frame(), "Sample" = "short_xist"),
+#       cbind(myobj[[3]] %>% data.frame(), "Sample" = "long_xist")) %>%
+#   mutate(X_chromosome = ifelse(chr == "X", "X-chromosome", "Autosomes")) %>%
+#   ggplot(aes(numCs / coverage, col = Sample)) + geom_density(adjust = 3) + theme_classic() +
+#     scale_y_continuous(expand = c(0, 0)) + facet_wrap(~X_chromosome)
+# ggsave("./analysis_practice/Plots/beta_values_raw.pdf")
+# 
+# # Clean up workspace
+# rm(myobj)
+# gc()
+
+```
+
+We now read in the allele-specific methylation patterns. 
+
+```{r new_cell}
+
+library(methylKit)
+library(ggplot2)
+library(tidyverse)
+
+data.dir <- "/Volumes/Elements/xist_project/methylation/processed_data/"
+sample.names <- list.files(data.dir, full.names = T)
+# sample.names <- sample.names[sample.names != "linked_files"]
+# sample.names <- sample.names[sample.names != "processed files.zip"]
+
+#genome1.files <- paste0(data.dir, sample.names, "/", sample.names, ".genome1.bismark.cov.gz")
+genome1.files <- sample.names[grepl("genome1", sample.names)]
+#genome1.files <- genome1.files[c(1, 4, 2, 5, 3)]
+#genome2.files <- paste0(data.dir, sample.names, "/", sample.names, ".genome2.bismark.cov.gz")
+genome2.files <- sample.names[grepl("genome2", sample.names)]
+#genome2.files <- genome2.files[c(1, 4, 2, 5, 3)]
+
+# genome1.files <- genome1.files[genome1.files != "ctrl_2.deduplicated.sorted.genome1.bismark.cov.gz"]
+
+# myobj=methRead(as.list(c(genome1.files, genome2.files)),
+#                sample.id = as.list(c(gsub(".deduplicated.sorted.genome1.bismark.cov", "", basename(genome1.files)), 
+#                                      gsub(".deduplicated.sorted.genome2.bismark.cov", "", basename(genome2.files)))), 
+#                assembly="mm10",
+#                treatment=0:19,
+#                context="CpG",
+#                pipeline = "bismarkCoverage", 
+#                mincov = 1
+# )
+# 
+# myobj <- methylKit::unite(myobj)
+# saveRDS(myobj, "./ProcessedData/methylation_assembled.rds")
+
+#myobj <- readRDS("./ProcessedData/methylation_assembled.rds")
+myobj <- readRDS("/Volumes/Elements/xist_project/methylation/processed_data/methylation_assembled.rds")
+myobj <- myobj[myobj$chr == "chrX", ]
+
+sample_anno <- c(paste0(gsub(".deduplicated.sorted.genome1.bismark.cov", "", basename(genome1.files)), "_inactive"),
+                 paste0(gsub(".deduplicated.sorted.genome2.bismark.cov", "", basename(genome2.files)), "_active"))
+
+myobj %>%
+  data.frame() %>%
+  pivot_longer(
+    -c("chr", "start", "end", "strand"),
+    names_to = c("kind", "sample"),
+    names_pattern = "(coverage|numCs|numTs)([0-9]*)"
+  ) %>%
+  dplyr::filter(kind != "numTs") %>%
+  pivot_wider(names_from = kind, values_from = value) %>%
+  mutate(sample = sample_anno[as.numeric(sample)]) %>%
+  mutate(Activity = ifelse(grepl("inactive", sample), "inactive", "active")) %>%
+  mutate(Washout = ifelse(grepl("_wo_", sample), "Washout", "No Washout")) %>%
+  mutate(Dox = str_extract(sample, "21d_dox|7d_dox|ctrl")) %>%
+  mutate(Replicate = ifelse(grepl("_2_", sample), 2, 1)) %>%
+  mutate(Condition = paste0(Dox, "_", Washout, "_", Activity)) %>%
+  mutate(beta = numCs / coverage) -> processed
+
+processed %>%
+  group_by(sample) %>%
+  summarize(coverage = mean(coverage)) %>% arrange(coverage)
+
+processed %>%
+  group_by(Condition, Activity, Replicate) %>%
+  summarize(coverage = mean(coverage)) %>%
+  ggplot(aes(x = Condition, fill = Activity, y = coverage)) + geom_bar(stat = "identity", position = position_dodge()) + 
+    coord_flip() + facet_wrap(~Replicate)
+
+processed %>%
+  group_by(chr, start, end, strand, Activity, Washout, Dox, Condition) %>%
+  summarize(coverage = sum(coverage), numCs = sum(numCs)) %>%
+  mutate(beta = numCs / coverage) -> processed
+
+```
+
+```{r new_cell}
+
+processed_data <- processed
+
+# 
+# processed_data %>%
+#   mutate(X_chromosome = ifelse(chr == "X", "X-chromosome", "Autosomes")) %>%
+#   ggplot(aes(numCs / coverage, col = Activity)) + geom_density(adjust = 3) + theme_classic() +
+#     scale_y_continuous(expand = c(0, 0)) + facet_wrap(~Condition + X_chromosome, ncol = 2, scales = "free")
+# ggsave("./analysis_practice/Plots/beta_values_raw_allelic_1.pdf")
+#  
+# processed_data %>%
+#   mutate(X_chromosome = ifelse(chr == "X", "X-chromosome", "Autosomes")) %>%
+#   ggplot(aes(numCs / coverage, col = paste0(Activity, "_", X_chromosome))) + geom_density(adjust = 5) + theme_classic() +
+#     scale_color_manual(values = c("grey", "black", "grey", "red")) +
+#     scale_y_continuous(expand = c(0, 0)) + facet_wrap(~Condition, ncol = 3, scales = "free")
+# ggsave("./analysis_practice/Plots/beta_values_raw_allelic_2.pdf", width = 10, height = 10)
+ 
+colors_here <- c(setNames(rep("grey", 19), as.character(1:19)), c("X_Active" = "black", "X_Inactive" = "chocolate"))
+   
+processed_data %>%
+  # mutate(X_chromosome = ifelse(chr == "X", "X-chromosome", "Autosomes")) %>%
+  mutate(chr_show = ifelse(chr == "X", paste0(chr, "_", Activity), chr)) %>%
+  dplyr::filter(chr_show != "Y") %>%
+  ggplot(aes(numCs / coverage, col = chr_show)) + geom_density(adjust = 5) + theme_classic() +
+    scale_color_manual(values = colors_here) +
+    scale_y_continuous(expand = c(0, 0)) + facet_wrap(~Condition, ncol = 5, scales = "free")
+# ggsave("./analysis_practice/Plots/beta_values_raw_allelic_3.pdf", width = 10, height = 10)
+
+```
+
+Now we subset on the X chromosome for targeted analysis and load genomic features of interest.
+
+```{r new_cell}
+
+library(genomation)
+library("TxDb.Mmusculus.UCSC.mm10.knownGene")
+library(org.Mm.eg.db)
+
+# load cpg island coordinates
+cpg.islands <- readr::read_delim("../methylation_data/cpg_islands.csv", col_names = NULL)
+colnames(cpg.islands) <- c("Index", "Chr", "Start", "End", "CpGNr", "X6", "X7", "X8", "X9", "X10", "X11")
+cpg.islands.granges <- makeGRangesFromDataFrame(cpg.islands)
+seqlevelsStyle(cpg.islands.granges) <- "Ensembl"
+
+genome <- genes(TxDb.Mmusculus.UCSC.mm10.knownGene)
+genome$symbol <- mapIds(org.Mm.eg.db, genome$gene_id, "SYMBOL","ENTREZID")
+genome_extended <- genome
+start(genome_extended) <- unlist(lapply(start(genome_extended) - 5000, function(x){max(1, x)}))
+end(genome_extended) <- end(genome_extended) + 5000
+seqlevelsStyle(genome) <- "Ensembl"
+seqlevelsStyle(genome_extended) <- "Ensembl"
+overlap.coordinates <- findOverlaps(cpg.islands.granges, genome_extended)
+
+cpg.islands.granges$gene <- "NA"
+cpg.islands.granges[from(overlap.coordinates), ]$gene <- genome[to(overlap.coordinates), ]$symbol
+names(cpg.islands.granges) <- paste0(seqnames(cpg.islands.granges), ":", start(cpg.islands.granges), "-", end(cpg.islands.granges))
+
+# load gene body coordinates
+gene.bodies <- genes(TxDb.Mmusculus.UCSC.mm10.knownGene)
+seqlevelsStyle(gene.bodies) <- "Ensembl"
+gene_symbols <- ensembldb::mapIds(org.Mm.eg.db, gene.bodies$gene_id, "SYMBOL", "ENTREZID")
+gene.bodies$gene_symbol <- gene_symbols
+
+# load promoter coordinates
+library(genomation)
+library("EnsDb.Mmusculus.v79")
+promoters.here <- promoters(EnsDb.Mmusculus.v79, upstream = 500, downstream = 0)
+seqlevelsStyle(promoters.here) <- "Ensembl"
+gene_symbols <- ensembldb::mapIds(EnsDb.Mmusculus.v79, promoters.here$tx_name, "SYMBOL", "TXNAME")
+promoters.here$gene_symbol <- gene_symbols
+
+# we also want information on gene expression levels here. Get that from our RNA-Seq data: 
+data_expression <- readRDS("../methylation_data/e6_expression_levels.rds")
+data_expression <- data_expression %>%
+  mutate(is_expressed = total > 100) %>%
+  mutate(is_escaping = inactive / (inactive + active) > 0.1 & is_expressed)
+
+```
+
+```{r coverage_plots}
+
+processed_data %>%
+  # dplyr::filter(coverage < 20) %>%
+  ggplot(aes(x = coverage, fill = Activity)) + geom_histogram() + facet_wrap(~Condition) + scale_x_log10()
+ggsave("./Plots/Fig_methylation/methylation_coverage_per_allele_histogram.pdf")
+
+processed_data %>%
+  group_by(Condition, Activity) %>%
+  summarize(coverage = mean(coverage)) %>%
+  ggplot(aes(x = Condition, fill = Activity, y = coverage)) + geom_bar(stat = "identity", position = position_dodge()) + coord_flip()
+ggsave("./Plots/Fig_methylation/methylation_coverage_per_allele.pdf")
+
+```
+
+```{r new_cell}
+
+myobj$chr <- gsub("chr", "", myobj$chr)
+
+merged_data = regionCounts(myobj, cpg.islands.granges)
+
+sample_anno <- c(
+  "1" = "Xist21d_Inactive", 
+  "2" = "Xist21dWashout_Inactive", 
+  "3" = "Xist21dWashout_Inactive", 
+  "4" = "Xist21d_Inactive", 
+  "5" = "Xist7d_Inactive", 
+  "6" = "Xist7dWashout_Inactive", 
+  "7" = "Xist7dWashout_Inactive", 
+  "8" = "Xist7d_Inactive", 
+  "9" = "Control_Inactive", 
+  "10" = "Control_Inactive", 
+  "11" = "Xist21d_Active", 
+  "12" = "Xist21dWashout_Active", 
+  "13" = "Xist21dWashout_Active", 
+  "14" = "Xist21d_Active", 
+  "15" = "Xist7d_Active", 
+  "16" = "Xist7dWashout_Active", 
+  "17" = "Xist7dWashout_Active", 
+  "18" = "Xist7d_Active", 
+  "19" = "Control_Active", 
+  "20" = "Control_Active"
+)
+
+merged_data %>%
+  data.frame() %>%
+  pivot_longer(
+    -c("chr", "start", "end", "strand"), 
+    names_to = c("kind", "sample"), 
+    #names_transform = list(kind = gsub("[0-9]", "", .), sample = str_extract("[0-9]", .)). 
+    names_pattern = "(coverage|numCs|numTs)([0-9]*)"
+  ) %>%
+  dplyr::filter(kind != "numTs") %>%
+  pivot_wider(names_from = kind, values_from = value) %>%
+  mutate(beta = numCs / coverage) %>%
+  mutate(sample = sample_anno[as.numeric(sample)]) %>%
+  separate(sample, into = c("Condition", "Activity")) %>%
+  mutate(Condition = factor(Condition, levels = c("Control", "Xist7d", "Xist7dWashout", "Xist21d", "Xist21dWashout"))) %>%
+  mutate(CpG_ID = paste0(chr, ":", start, "-", end)) -> processed_data
+
+processed_data %>%
+  dplyr::select(-c("chr", "start", "end", "strand", "Condition", "Activity")) %>%
+  group_by(CpG_ID) %>%
+  summarize(coverage = sum(coverage), numCs = sum(numCs), beta = mean(beta), across()) -> summarized_data
+
+summarized_data %>%
+  pull(coverage) -> test
+table(test > 2 * 3 * 5) / sum(table(test > 2 * 3 * 5))
+table(test > 2 * 3 * 5)
+
+sites_plot <- summarized_data %>% dplyr::filter(coverage > 2 * 3 * 5)
+
+processed_data %>%
+  group_by(CpG_ID, Condition, Activity, coverage) %>%
+  summarize(beta = sum(numCs) / sum(coverage)) %>%
+  dplyr::filter(CpG_ID %in% sites_plot$CpG_ID) %>%
+  ungroup() %>%
+  group_by(CpG_ID) %>%
+  dplyr::filter(all(coverage[Activity == "Inactive"] > 10)) -> df_plot_7g
+
+df_plot_7g %>%
+  ggplot(aes(x = Condition, y = beta, fill = Activity)) +
+    geom_hline(yintercept = 0:10 / 10, linetype = "dashed", col = "grey") +
+    geom_violin(position = "dodge")+
+    geom_boxplot(width=.2, outlier.colour=NA, position = "dodge") + 
+    scale_fill_manual(values = c("grey", "chocolate")) + 
+    theme_classic(base_size = 30) + xlab("") + ylab("Beta-value (percent methylated)") + 
+    ggtitle("Average CpG-island metyhlation") + scale_y_continuous(expand = c(0, 0)) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+ggsave("./Plots/Fig_methylation/cpg_island_methylation_active_inactive.pdf", height = 8, width = 14)
+
+## get pvalues for pairwise comparisons: 
+processed_data %>%
+  group_by(CpG_ID, Condition, Activity, coverage) %>%
+  summarize(beta = sum(numCs) / sum(coverage)) %>%
+  dplyr::filter(CpG_ID %in% sites_plot$CpG_ID) %>%
+  ungroup() %>%
+  group_by(CpG_ID) %>%
+  dplyr::filter(all(coverage[Activity == "Inactive"] > 10)) %>%
+  dplyr::filter(Activity == "Inactive") %>% 
+  group_by(Condition) %>%
+  summarize(betas = list(beta)) %>%
+  tidyr::expand(nesting(Condition, betas), nesting(Condition, betas),  .name_repair = "unique") %>%
+  setNames(tolower(gsub("\\.","", names(.)))) %>%
+  dplyr::filter(condition1 != condition3) %>%
+  rowwise() %>%
+  mutate(pval = wilcox.test(betas2, betas4, paired = T)$p.value) %>% 
+  ungroup() %>%
+  mutate(padj = p.adjust(pval, method = "BH")) -> testing_results
+
+testing_results %>% 
+  dplyr::select(c("condition1", "condition3", "padj")) %>%
+  dplyr::filter(condition1 == "Control")
+
+processed_data %>% 
+  dplyr::filter(Activity == "Inactive") -> test
+
+wilcox.test(test[test$Condition == "Control", ]$beta, test[test$Condition == "Xist21d", ]$beta, paired = T)
+
+saveRDS(processed_data, "./processed_data_files/cpg_islands.rds")
+
+```
+
+The same analysis in gene bodies... 
+
+```{r new_cell}
+
+names(gene.bodies) <- paste0(seqnames(gene.bodies), ":", start(gene.bodies), "-", end(gene.bodies))
+gene.bodies <- gene.bodies[!duplicated(names(gene.bodies)), ]
+merged_data = regionCounts(myobj, gene.bodies)
+merged_data.granges <- GRanges(merged_data)
+merged_data.granges$Gene <- gene.bodies[paste0(seqnames(merged_data.granges), ":", start(merged_data.granges), "-", end(merged_data.granges)), ]$gene_symbol
+
+merged_data %>%
+  data.frame() %>% 
+  add_column(gene = merged_data.granges$Gene) %>%
+  add_column(is_expressed = .$gene %in% rownames(data_expression[data_expression$is_expressed, ])) %>%
+  add_column(is_escaping = .$gene %in% rownames(data_expression[data_expression$is_escaping, ])) %>%
+  pivot_longer(
+    -c("chr", "start", "end", "strand", "is_expressed", "is_escaping", "gene"), 
+    names_to = c("kind", "sample"), 
+    #names_transform = list(kind = gsub("[0-9]", "", .), sample = str_extract("[0-9]", .)). 
+    names_pattern = "(coverage|numCs|numTs)([0-9]*)"
+  ) %>%
+  dplyr::filter(kind != "numTs") %>%
+  distinct() %>%
+  pivot_wider(names_from = kind, values_from = value) %>%
+  mutate(beta = numCs / coverage) %>%
+  mutate(sample = sample_anno[as.character(sample)]) %>%
+  separate(sample, into = c("Condition", "Activity")) %>%
+  mutate(is_expressed = factor(ifelse(is_expressed, "Expressed", "Not Expressed"), levels = c("Not Expressed", "Expressed"))) %>%
+  mutate(is_escaping = factor(ifelse(is_escaping, "Escaping", "Not Escaping"), levels = c("Not Escaping", "Escaping"))) %>%
+  mutate(Condition = factor(Condition, levels = c("Control", "Xist7d", "Xist7dWashout", "Xist21d", "Xist21dWashout"))) -> processed_data
+
+processed_data %>%
+  dplyr::select(-c("chr", "start", "end", "strand", "Condition", "Activity", "is_expressed", "is_escaping")) %>%
+  group_by(gene) %>%
+  summarize(coverage = sum(coverage), numCs = sum(numCs), beta = mean(beta), across()) -> summarized_data
+
+summarized_data %>%
+  pull(coverage) -> test
+table(test > 2 * 3 * 5) / sum(table(test > 2 * 3 * 5))
+table(test > 2 * 3 * 5)
+
+sites_plot <- summarized_data %>% dplyr::filter(coverage > 2 * 3 * 5)
+
+dodge <- position_dodge(width = 0.4)
+processed_data %>%
+  dplyr::filter(gene %in% sites_plot$gene) -> df_plot_s9i
+
+df_plot_s9i %>%
+  ggplot(aes(x = Condition, y = beta, fill = Activity)) +
+    geom_hline(yintercept = 0:10 / 10, linetype = "dashed", col = "grey") +
+    geom_violin(position = dodge)+
+    geom_boxplot(width=.1, outlier.colour=NA, position = dodge) + 
+    # stat_summary(position = dodge, fun = median, fun.min = function(x){quantile(x, 0.25)},  fun.max = function(x){quantile(x, 0.75)}) + 
+    scale_fill_manual(values = c("grey", "chocolate")) + 
+    theme_classic(base_size = 30) + xlab("") + ylab("Beta-value (percent methylated)") + 
+    ggtitle("Average gene body methylation") + scale_y_continuous(expand = c(0, 0)) + 
+    facet_wrap(~is_expressed + is_escaping) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+ggsave("./Plots/Fig_methylation/gene_body_methylation_active_inactive.pdf", height = 8, width = 20)
+
+processed_data %>%
+  dplyr::filter(is_expressed == "Expressed" & is_escaping == "Not Escaping") %>%
+  group_by(gene, Condition, Activity, coverage) %>%
+  summarize(beta = sum(numCs) / sum(coverage)) %>%
+  ungroup() %>%
+  group_by(gene) %>%
+  mutate(n_genes = n()) %>%
+  dplyr::filter(all(coverage[Activity == "Inactive"] > 20)) %>%
+  dplyr::filter(Activity == "Inactive") %>% 
+  dplyr::filter(n_genes == 20) %>%
+  group_by(Condition) %>%
+  summarize(betas = list(beta)) %>%
+  tidyr::expand(nesting(Condition, betas), nesting(Condition, betas), .name_repair = "unique") %>%
+  setNames(tolower(gsub("\\.","", names(.)))) %>%
+  dplyr::filter(condition1 != condition3) %>%
+  rowwise() %>%
+  mutate(pval = wilcox.test(betas2, betas4, paired = T)$p.value) %>% 
+  ungroup() %>%
+  mutate(padj = p.adjust(pval, method = "BH")) -> testing_results
+
+testing_results %>% 
+  dplyr::select(c("condition1", "condition3", "padj")) %>%
+  dplyr::filter(condition1 == "Control")
+    
+## 
+
+processed_data %>%
+  dplyr::filter(is_expressed == "Expressed" & is_escaping == "Escaping") %>%
+  group_by(gene, Condition, Activity, coverage) %>%
+  summarize(beta = sum(numCs) / sum(coverage)) %>%
+  ungroup() %>%
+  group_by(gene) %>%
+  mutate(n_genes = n()) %>%
+  dplyr::filter(all(coverage[Activity == "Inactive"] > 20)) %>%
+  dplyr::filter(Activity == "Inactive") %>% 
+  dplyr::filter(n_genes == 20) %>%
+  group_by(Condition) %>%
+  summarize(betas = list(beta)) %>%
+  tidyr::expand(nesting(Condition, betas), nesting(Condition, betas), .name_repair = "unique") %>%
+  setNames(tolower(gsub("\\.","", names(.)))) %>%
+  dplyr::filter(condition1 != condition3) %>%
+  rowwise() %>%
+  mutate(pval = wilcox.test(betas2, betas4, paired = T)$p.value) %>% 
+  ungroup() %>%
+  mutate(padj = p.adjust(pval, method = "BH")) -> testing_results
+
+testing_results %>% 
+  dplyr::select(c("condition1", "condition3", "padj")) %>%
+  dplyr::filter(condition1 == "Control")
+
+saveRDS(processed_data, "./processed_data_files/gene_bodies.rds")
+
+```
+
+Now promoters... this analysis is not ideal (due to unclarity of promoter coordinates)
+
+```{r new_cell}
+
+names(promoters.here) <- paste0(seqnames(promoters.here), ":", start(promoters.here), "-", end(promoters.here))
+promoters.here <- promoters.here[!duplicated(names(promoters.here)), ]
+
+merged_data = regionCounts(myobj, promoters.here)
+
+merged_data.granges <- GRanges(merged_data)
+merged_data$Gene <- promoters.here[paste0(merged_data$chr, ":", merged_data$start, "-", merged_data$end), ]$gene_symbol
+
+merged_data %>%
+  data.frame() %>%
+  add_column(is_expressed = .$Gene %in% rownames(data_expression[data_expression$is_expressed, ])) %>%
+  add_column(is_escaping = .$Gene %in% rownames(data_expression[data_expression$is_escaping, ])) %>%
+  mutate(is_expressed = factor(ifelse(is_expressed, "Expressed", "Not Expressed"), levels = c("Not Expressed", "Expressed"))) %>%
+  mutate(is_escaping = factor(ifelse(is_escaping, "Escaping", "Not Escaping"), levels = c("Not Escaping", "Escaping"))) %>%
+  pivot_longer(
+    -c("chr", "start", "end", "strand", "is_expressed", "is_escaping", "Gene"), 
+    names_to = c("kind", "sample"), 
+    names_pattern = "(coverage|numCs|numTs)([0-9]*)"
+  ) %>%
+  dplyr::filter(kind != "numTs") %>%
+  distinct() %>%
+  pivot_wider(names_from = kind, values_from = value) %>%
+  mutate(beta = numCs / coverage) %>%
+  mutate(sample = sample_anno[as.character(sample)]) %>%
+  separate(sample, into = c("Condition", "Activity")) %>%
+  mutate(Condition = factor(Condition, levels =  c("Control", "Xist7d","Xist7dWashout", "Xist21d",  "Xist21dWashout"))) %>% 
+  mutate(PromoterId = paste0(chr, ":", start, ":", end)) -> processed_data
+
+processed_data %>%
+  dplyr::select(-c("chr", "start", "end", "strand", "Condition", "Activity", "is_expressed", "is_escaping")) %>%
+  group_by(PromoterId) %>%
+  summarize(coverage = sum(coverage), numCs = sum(numCs), beta = mean(beta), Gene = unique(Gene)) -> summarized_data
+
+summarized_data %>%
+  pull(coverage) -> test
+table(test > 2 * 3 * 5) / sum(table(test > 2 * 3 * 5))
+table(test > 2 * 3 * 5)
+
+sites_plot <- summarized_data %>% dplyr::filter(coverage > 2 * 3 * 5)
+
+dodge <- position_dodge(width = 0.4)
+processed_data %>%
+  dplyr::filter(Gene %in% sites_plot$Gene) %>%
+  ggplot(aes(x = Condition, y = beta, fill = Activity)) +
+    geom_hline(yintercept = 0:10 / 10, linetype = "dashed", col = "grey") + 
+    geom_violin(position = dodge) +
+    geom_boxplot(width=.1, outlier.colour=NA, position = dodge) + 
+    # stat_summary(position = dodge, fun = median, fun.min = function(x){quantile(x, 0.25)},  fun.max = function(x){quantile(x, 0.75)}) + 
+    scale_fill_manual(values = c("grey", "chocolate")) + 
+    theme_classic(base_size = 30) + xlab("") + ylab("Beta-value (percent methylated)") + 
+    ggtitle("Average promoter methylation") + scale_y_continuous(expand = c(0, 0)) + 
+    facet_wrap(~is_expressed + is_escaping) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+ggsave("./Plots/Fig_methylation/promoter_methylation_active_inactive_by_expression.pdf", height = 8, width = 20)
+
+processed_data %>%
+  dplyr::filter(Gene %in% sites_plot$Gene) %>%
+  ggplot(aes(x = Condition, y = beta, col = Activity)) +
+      ggbeeswarm::geom_quasirandom(dodge.width = 1, size = 1) + 
+      scale_fill_manual(values = c("grey", "chocolate")) + 
+      theme_classic(base_size = 30) + xlab("") + ylab("Beta-value (percent methylated)") + 
+      ggtitle("Average promoter metyhlation") + scale_y_continuous() + 
+      stat_summary(position = dodge, size = 1.5) + 
+      facet_wrap(~is_expressed + is_escaping) + 
+      scale_color_manual(values = c("grey", "chocolate")) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+ggsave("./Plots/Fig_methylation/cpg_island_methylation_active_inactive_by_genegroup_points.pdf", height = 8, width = 20)
+
+saveRDS(processed_data, "./processed_data_files/promoters.rds")
+
+```
+
+```{r new_cell}
+
+##### Stratify by escapees
+library(EnsDb.Mmusculus.v79)
+escapee_annotation <- readxl::read_excel("../methylation_data/ListOfEscapeeFromEdithLab.xlsx")
+symbols <- mapIds(EnsDb.Mmusculus.v79, keys = escapee_annotation$ENSEMBL_v102, keytype = "GENEID", column="SYMBOL")
+escapee_annotation$symbol <- symbols
+escapee_annotation <- escapee_annotation[!duplicated(escapee_annotation$symbol), ]
+escapee_annotation <- data.frame(escapee_annotation[!is.na(escapee_annotation$symbol), ])
+rownames(escapee_annotation) <- escapee_annotation$symbol
+
+escapee_annotation_status <- escapee_annotation[,grepl("Status|symbol|position", colnames(escapee_annotation))]
+
+escape_colors <- setNames(c("grey", "darkgreen", "orange"), nm = c("silenced / variable", "facultative", "constitutive"))
+escape_colors_other_name <- setNames(c("lightblue", "grey", "darkgreen", "orange"), nm = c("NA", "S", "V", "E"))
+escapee_annotation <- escapee_annotation %>%
+  mutate("escape_status" = c("NA" = "not measured", "S" = "silenced / variable", "V" = "facultative", "E" = "constitutive")[.$final.status])
+
+```
+
+```{r new_cell}
+
+library(genomation)
+library("EnsDb.Mmusculus.v79")
+promoters <- promoters(EnsDb.Mmusculus.v79)
+promoters <- promoters[seqnames(promoters) == "X"]
+promoters$symbol <- mapIds(EnsDb.Mmusculus.v79, promoters$tx_name, "SYMBOL","TXID")
+promoters_here <- promoters[promoters$symbol == "Kdm6a", ]
+
+###############################################################
+library(genomation)
+library("TxDb.Mmusculus.UCSC.mm10.knownGene")
+library(org.Mm.eg.db)
+
+# load cpg island coordinates
+cpg.islands <- readr::read_delim("../methylation_data/cpg_islands.csv", col_names = NULL)
+colnames(cpg.islands) <- c("Index", "Chr", "Start", "End", "CpGNr", "X6", "X7", "X8", "X9", "X10", "X11")
+cpg.islands.granges <- makeGRangesFromDataFrame(cpg.islands)
+seqlevelsStyle(cpg.islands.granges) <- "Ensembl"
+
+genome <- genes(TxDb.Mmusculus.UCSC.mm10.knownGene)
+genome$symbol <- mapIds(org.Mm.eg.db, genome$gene_id, "SYMBOL","ENTREZID")
+seqlevelsStyle(genome) <- "Ensembl"
+overlap.coordinates <- findOverlaps(cpg.islands.granges, genome)
+
+cpg.islands.granges$gene <- "NA"
+cpg.islands.granges[from(overlap.coordinates), ]$gene <- genome[to(overlap.coordinates), ]$symbol
+
+# load gene body coordinates
+gene.bodies <- genes(TxDb.Mmusculus.UCSC.mm10.knownGene)
+seqlevelsStyle(gene.bodies) <- "Ensembl"
+gene_symbols <- ensembldb::mapIds(org.Mm.eg.db, gene.bodies$gene_id, "SYMBOL", "ENTREZID")
+gene.bodies$gene_symbol <- gene_symbols
+
+# load promoter coordinates
+library(genomation)
+library("EnsDb.Mmusculus.v79")
+promoters.here <- promoters(EnsDb.Mmusculus.v79, upstream = 1000, downstream = 100)
+seqlevelsStyle(promoters.here) <- "Ensembl"
+gene_symbols <- ensembldb::mapIds(EnsDb.Mmusculus.v79, promoters.here$tx_name, "SYMBOL", "TXNAME")
+promoters.here$gene_symbol <- gene_symbols
+
+# we also want information on gene expression levels here. Get that from our RNA-Seq data:
+data_expression <- readRDS("../methylation_data/e6_expression_levels.rds")
+data_expression <- data_expression %>%
+  mutate(is_expressed = total > 100) %>%
+  mutate(is_escaping = inactive / (inactive + active) > 0.1 & is_expressed)
+
+### get atac peaks
+atac_peaks_old <-  read.table("./ProcessedData/DE_peaks_Xi_Xa.txt", row.names = NULL)
+atac_peaks_old <- atac_peaks_old %>% dplyr::filter(seqnames == "chrX") %>% arrange(start)
+
+atac_peaks <- read.table("./ProcessedData/counts_ATAC_E6.txt", 
+                           row.names = NULL)
+
+atac_peaks <- data.frame(
+    seqnames = unlist(lapply(str_split(atac_peaks$row.names, ":"), function(x){x[[1]]})), 
+    start = unlist(lapply(str_split(atac_peaks$row.names, "-"), function(x){x[[1]]})),
+    end = unlist(lapply(str_split(atac_peaks$row.names, "-"), function(x){x[[2]]}))
+) %>% mutate(
+  start = unlist(lapply(str_split(start, ":"), function(x){x[[2]]}))
+) %>% dplyr::filter(seqnames == "chrX") %>% 
+  mutate(start = as.numeric(start)) %>%
+  mutate(end = as.numeric(end))
+
+atac_peaks_granges <- makeGRangesFromDataFrame(atac_peaks)
+
+### Plot specific genes
+genome <- genes(TxDb.Mmusculus.UCSC.mm10.knownGene)
+genome$symbol <- mapIds(org.Mm.eg.db, genome$gene_id, "SYMBOL","ENTREZID")
+seqlevelsStyle(genome) <- "Ensembl"
+genome <- genome[!is.na(genome$symbol), ]
+genome <- genome[seqnames(genome) == 'X', ]
+
+exome <- exons(EnsDb.Mmusculus.v79)
+exome$symbol <- mapIds(EnsDb.Mmusculus.v79, exome$exon_id, "SYMBOL","EXONID")
+
+promoters <- promoters(EnsDb.Mmusculus.v79)
+promoters$symbol <- mapIds(EnsDb.Mmusculus.v79, promoters$tx_name, "SYMBOL","TXNAME")
+
+genes_lookat <- 
+  unique(genome[start(genome) > min(processed_data$start) & end(genome) < max(processed_data$start), ]$symbol)
+genes_lookat <- genes_lookat[genes_lookat %in% (data_expression %>% dplyr::filter(is_escaping) %>% rownames())]
+
+```
+
+```{r plot_specific_genes}
+
+myobj %>%
+  data.frame() %>%
+  pivot_longer(
+    -c("chr", "start", "end", "strand"),
+    names_to = c("kind", "sample"),
+    names_pattern = "(coverage|numCs|numTs)([0-9]*)"
+  ) %>%
+  dplyr::filter(kind != "numTs") %>%
+  pivot_wider(names_from = kind, values_from = value) %>%
+  mutate(sample = sample_anno[as.numeric(sample)]) %>%
+  separate(sample, into = c("Condition", "Activity")) %>%
+  mutate(Condition = factor(Condition, levels = c("Control", "Xist7d", "Xist7dWashout", "Xist21d", "Xist21dWashout"))) %>% 
+  group_by(chr, start, end, strand, Condition, Activity) %>%
+  summarize(coverage = sum(coverage), numCs = sum(numCs)) %>%
+  mutate(beta = numCs / coverage) -> processed_data_singlebase
+
+plot_gene <- function(gene, offset = 1e3){
+
+  print(gene)
+
+  gene_coordinates <- genome[genome$symbol == gene, ]
+  exon_coordinates <- exome[exome$symbol == gene, ] %>% data.frame()
+  promoter_coordinates <- promoters[promoters$symbol == gene, ]
+  atac_peaks_here <- atac_peaks %>% mutate(seqnames = gsub("chr", "", seqnames))
+  atac_peaks_here <- subsetByOverlaps(makeGRangesFromDataFrame(atac_peaks_here), promoter_coordinates) %>% data.frame()
+  atac_peak_coordinates <- atac_peaks_here[atac_peaks_here$start > (start(gene_coordinates) - offset) &
+                                        atac_peaks_here$start < (end(gene_coordinates) + offset), ] %>%
+    makeGRangesListFromDataFrame()
+
+  processed_data_singlebase %>%
+    # mutate(Sample = sample_anno[gsub("Sample", "", Sample)]) %>%
+    # separate_wider_delim(Sample, "_", names = c("Condition", "Chromosome")) %>%
+    # mutate(Condition = factor(Condition, levels = c("Control", "Xist7d", "Xist7dWashout", "Xist21d", "Xist21dWashout"))) %>%
+    group_by(start) %>%
+    mutate(mean_n = mean(coverage)) %>%
+    dplyr::filter(mean_n > 1) -> data_for_gene_plotting
+
+  plot_start <- min(exon_coordinates$start) - offset
+  plot_end <- max(exon_coordinates$end) + offset
+
+  strand_direction <- as.character(strand(gene_coordinates))
+
+  strand_pointer <- if (strand_direction == "+"){
+    annotate(geom = "rect",
+             xmin = min(exon_coordinates$start) - (plot_end - plot_start) / 100,
+             xmax = min(exon_coordinates$start),
+             ymin = -0.1, ymax = 0.1)
+  } else {
+    annotate(geom = "rect",
+             xmin = max(exon_coordinates$end),
+             xmax = max(exon_coordinates$end) + (plot_end - plot_start) / 100,
+             ymin = -0.1, ymax = 0.1)
+  }
+
+  gene_plot <- ggplot(data = exon_coordinates) + geom_rect(aes(xmin = start, xmax = end, ymin = -1, ymax = 1)) +
+      geom_rect(aes(xmin = min(start), xmax = max(start), ymin = -.03, ymax = .03)) + theme_classic() +
+      scale_x_continuous(limits = c(plot_start, plot_end)) +
+      theme_void() +
+      strand_pointer
+  gene_plot
+
+  data_for_gene_plotting %>%
+    dplyr::filter(Activity == "Inactive") %>%
+    dplyr::filter(start > plot_start & start < plot_end) %>%
+    ggplot() +
+      geom_rect(data = data.frame(ranges(promoter_coordinates)),
+                aes(xmin = start, xmax = end, ymin = 0, ymax = 1), alpha = .3) +
+      geom_rect(data = data.frame(ranges(atac_peak_coordinates)),
+            aes(xmin = start, xmax = end, ymin = 0, ymax = 1), alpha = .3, fill = "red") +
+      geom_point(size = 1, aes(x = start, y = beta)) + facet_wrap(~Condition + Activity, nrow = 5) +
+      ggtitle(gene) + theme_paper(textsize = 10) + ylab("% methylated Cs") +
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+      xlim(c(plot_start, plot_end)) -> plot_data
+
+  plot_data + gene_plot + plot_layout(heights = c(2, .1))
+}
+
+# data_plot_here %>%
+#   pivot_wider(names_from = name, values_from = value) %>%
+#   mutate(beta_diff = beta - beta_ref) %>% 
+#   dplyr::filter(Condition == "Xist21dWashout") %>%
+#   arrange(-beta_diff)
+
+# promoters[promoters$symbol == "Pdzd4", ]
+# 
+# plot_gene("Rpgr", offset = 5e3)
+
+```
+
+```{r new_cell}
+
+# merged_data=regionCounts(myobj, cpg.islands.granges)
+# 
+# merged_data %>%
+#   data.frame() %>%
+#   pivot_longer(
+#     -c("chr", "start", "end", "strand"),
+#     names_to = c("kind", "sample"),
+#     #names_transform = list(kind = gsub("[0-9]", "", .), sample = str_extract("[0-9]", .)).
+#     names_pattern = "(coverage|numCs|numTs)([0-9]*)"
+#   ) %>%
+#   dplyr::filter(kind != "numTs") %>%
+#   pivot_wider(names_from = kind, values_from = value) %>%
+#   mutate(beta = numCs / coverage) %>%
+#   mutate(sample = sample_anno[as.character(sample)]) %>%
+#   separate(sample, into = c("Condition", "Activity")) %>%
+#   mutate(Condition = factor(Condition, levels = c("Control", "Xist7d", "Xist21d", "Xist7dWashout", "Xist21dWashout"))) %>%
+#   mutate(CpG_ID = paste0(chr, ":", start, "-", end)) -> processed_data
+# 
+# processed_data %>%
+#   dplyr::select(-c("chr", "start", "end", "strand", "Condition", "Activity")) %>%
+#   group_by(CpG_ID) %>%
+#   summarize(coverage = sum(coverage), numCs = sum(numCs), beta = mean(beta), across()) -> summarized_data
+# 
+# summarized_data %>%
+#   pull(coverage) -> test
+# table(test > 2 * 3 * 5) / sum(table(test > 2 * 3 * 5))
+# table(test > 2 * 3 * 5)
+# 
+# sites_plot <- summarized_data %>% dplyr::filter(coverage > 2 * 3 * 5)
+# 
+# dodge <- position_dodge(width = 0.4)
+# processed_data %>%
+#   group_by(CpG_ID, Condition, Activity) %>%
+#   summarize(beta = sum(numCs) / sum(coverage)) %>%
+#   dplyr::filter(CpG_ID %in% sites_plot$CpG_ID) %>%
+#   ggplot(aes(x = Condition, y = beta, fill = Activity)) +
+#     geom_hline(yintercept = 0:10 / 10, linetype = "dashed", col = "grey") +
+#     geom_violin(position = dodge)+
+#     geom_boxplot(width=.1, outlier.colour=NA, position = dodge) +
+#     scale_fill_manual(values = c("grey", "chocolate")) +
+#     theme_classic(base_size = 30) + xlab("") + ylab("Beta-value (percent methylated)") +
+#     ggtitle("Average CpG-island metyhlation") + scale_y_continuous(expand = c(0, 0)) +
+#     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+# 
+# processed_data %>%
+#   dplyr::filter(CpG_ID %in% sites_plot$CpG_ID) %>%
+#   ggplot(aes(x = Condition, y = beta, col = Activity)) +
+#     geom_hline(yintercept = 0:10 / 10, linetype = "dashed", col = "grey") +
+#     # geom_violin(position = dodge) +
+#     # geom_boxplot(width=.3, outlier.colour=NA, position = dodge) +
+#     ggbeeswarm::geom_quasirandom(dodge.width = 1, size = 1) +
+#     scale_color_manual(values = c("grey", "chocolate")) +
+#     theme_classic(base_size = 30) + xlab("") + ylab("Beta-value (percent methylated)") +
+#     ggtitle("Average CpG-island metyhlation") + scale_y_continuous(expand = c(0, 0)) +
+#     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+# # ggsave("./analysis_practice/Plots/targeted_mecp2/mecp2_targeted_cpg_island_methylation_active_inactive.pdf", height = 8, width = 20)
+# 
+# ## get pvalues for pairwise comparisons:
+# 
+# processed_data %>%
+#   group_by(CpG_ID, Condition, Activity) %>%
+#   summarize(beta = sum(numCs) / sum(coverage)) %>%
+#   dplyr::filter(CpG_ID %in% sites_plot$CpG_ID) %>%
+#   dplyr::filter(Activity == "Inactive") %>%
+#   group_by(Condition) %>%
+#   summarize(betas = list(beta)) %>%
+#   expand(nesting(Condition, betas), nesting(Condition, betas),  .name_repair = "unique") %>%
+#   setNames(tolower(gsub("\\.","", names(.)))) %>%
+#   dplyr::filter(condition1 != condition3) %>%
+#   rowwise() %>%
+#   mutate(m = wilcox.test(betas2, betas4, paired = T)$p.value)
+# 
+# processed_data %>%
+#   dplyr::filter(Activity == "Inactive") -> test
+# 
+# wilcox.test(test[test$Condition == "Control", ]$beta, test[test$Condition == "Xist21d", ]$beta, paired = T)
+
+```
+
+```{r new_cell}
+
+seqlevelsStyle(atac_peaks_granges) <- "Ensembl"
+
+merged_data = regionCounts(myobj, atac_peaks_granges)
+
+# JUMP HERE
+
+merged_data %>%
+  data.frame() %>%
+  pivot_longer(
+    -c("chr", "start", "end", "strand"),
+    names_to = c("kind", "sample"),
+    #names_transform = list(kind = gsub("[0-9]", "", .), sample = str_extract("[0-9]", .)).
+    names_pattern = "(coverage|numCs|numTs)([0-9]*)"
+  ) %>%
+  dplyr::filter(kind != "numTs") %>%
+  pivot_wider(names_from = kind, values_from = value) %>%
+  mutate(beta = numCs / coverage) %>%
+  mutate(sample = sample_anno[as.character(sample)]) %>%
+  separate(sample, into = c("Condition", "Activity")) %>%
+  mutate(Condition = factor(Condition, levels = c("Control", "Xist7d", "Xist21d", "Xist7dWashout", "Xist21dWashout"))) %>%
+  mutate(CpG_ID = paste0(chr, ":", start, "-", end)) -> processed_data
+
+processed_data %>%
+  dplyr::select(-c("chr", "start", "end", "strand", "Condition", "Activity")) %>%
+  group_by(CpG_ID) %>%
+  summarize(coverage = sum(coverage), numCs = sum(numCs), beta = mean(beta), across()) -> summarized_data
+
+summarized_data %>%
+  pull(coverage) -> test
+table(test > 2 * 3 * 5) / sum(table(test > 2 * 3 * 5))
+table(test > 2 * 3 * 5)
+
+sites_plot <- summarized_data %>% dplyr::filter(coverage > 2 * 3 * 5)
+
+dodge <- position_dodge(width = 0.4)
+processed_data %>%
+  group_by(CpG_ID, Condition, Activity) %>%
+  summarize(beta = sum(numCs) / sum(coverage)) %>%
+  dplyr::filter(CpG_ID %in% sites_plot$CpG_ID) %>%
+  ggplot(aes(x = Condition, y = beta, fill = Activity)) +
+    geom_hline(yintercept = 0:10 / 10, linetype = "dashed", col = "grey") +
+    geom_violin(position = dodge)+
+    geom_boxplot(width=.1, outlier.colour=NA, position = dodge) +
+    scale_fill_manual(values = c("grey", "chocolate")) +
+    theme_classic(base_size = 30) + xlab("") + ylab("Beta-value (percent methylated)") +
+    ggtitle("Average ATAC-peak methylation") + scale_y_continuous(expand = c(0, 0)) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+
+## 
+processed_data %>%
+  group_by(chr, start, end, strand, Condition, Activity, CpG_ID) %>%
+  summarize(coverage = sum(coverage), numCs = sum(numCs)) %>%
+  mutate(beta = numCs / coverage) %>%
+  dplyr::filter(Activity == "Inactive") %>%
+  dplyr::filter(CpG_ID %in% sites_plot$CpG_ID) %>%
+  group_by(CpG_ID) %>%
+  mutate(all_covered = all(coverage > 10)) %>% 
+  dplyr::filter(all_covered) %>%
+  dplyr::select(c("CpG_ID", "Condition", "beta")) %>%
+  group_by(CpG_ID) %>%
+  mutate(beta_ref = beta[Condition == "Control"]) %>%
+  pivot_longer(c(beta, beta_ref)) %>%
+  dplyr::filter(Condition != "Control") %>%
+  mutate(name = factor(name, levels = c("beta_ref", "beta"))) %>%
+  mutate(Condition = factor(Condition, levels = c("Xist7d", "Xist7dWashout", "Xist21d", "Xist21dWashout"))) %>% 
+  ungroup() -> transformed_data
+
+transformed_data %>%
+  ggplot(aes(x = name, y = value)) + 
+    geom_boxplot(aes(fill = name), alpha = .3, outlier.color = NA) + 
+    geom_point(position = position_dodge(width = .5)) + 
+    geom_line(aes(group = CpG_ID), alpha = .5) + 
+    scale_fill_manual(values = c("grey", "beige")) + 
+    theme_classic(base_size = 20) + xlab("") + ylab("Beta-value (percent methylated)") +
+    ggtitle("Average ATAC-peak methylation") + scale_y_continuous(expand = c(0, 0)) +
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+      facet_wrap(~Condition, nrow = 1)
+
+## pick promoter peaks and split by gene groups: 
+transformed_data %>% 
+  mutate(temp = gsub("X:", "", CpG_ID)) %>%
+  separate(temp, c("start", "end"), "-") %>%
+  mutate(seqnames = "X") %>%
+  dplyr::select(c(seqnames, start, end, CpG_ID)) %>% 
+  distinct() %>% makeGRangesFromDataFrame(keep.extra.columns = T) -> converted_granges
+
+promoter_overlaps <- data.frame(findOverlaps(converted_granges, promoters))
+promoter_overlaps$atac_peak <- converted_granges[promoter_overlaps$queryHits]$CpG_ID
+promoter_overlaps$promoter_hits <- promoters[promoter_overlaps$subjectHits]$symbol
+promoter_overlaps %>%
+  group_by(atac_peak) %>%
+  mutate(gene_lookat = promoter_hits %in% genes_lookat) %>%
+  summarize(genes = list(unique(promoter_hits))) %>% 
+  dplyr::rename(CpG_ID = atac_peak) -> temp_here
+
+transformed_data %>% 
+  full_join(temp_here) %>%
+  unnest_longer(genes) ->  transformed_data_2
+
+transformed_data_2 %>%
+  ggplot(aes(x = name, y = value)) + 
+    geom_boxplot(aes(fill = name), alpha = .3, outlier.color = NA) + 
+    geom_point(position = position_dodge(width = .5)) + 
+    geom_line(aes(group = CpG_ID), alpha = .5) + 
+    scale_fill_manual(values = c("grey", "beige")) + 
+    theme_classic(base_size = 20) + xlab("") + ylab("Beta-value (percent methylated)") +
+    ggtitle("Average ATAC-peak methylation") + scale_y_continuous(expand = c(0, 0)) +
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+      facet_wrap(~Condition, nrow = 1)
+
+# JUMP BACK HERE
+expression_categories <- readRDS("~/Desktop/PhD/Projects/XChromosome_Antonia_Final//ProcessedData/reversibility_21d.rds") %>%
+  # mutate(fully_silenced = nddox21_treat < 0.05) %>%
+  # mutate(irreversibly_silenced = nddox21_washout < 0.05) %>%
+  mutate(reversibility_ratio = nddox21_washout / control) %>%
+  mutate(reversibility_category = case_when(
+    reversibility_ratio >= .7 ~ "Reversible", 
+    reversibility_ratio < .7 & reversibility_ratio > .2 ~ "Irreversible", 
+    reversibility_ratio <= .2 ~ "Irreversible", 
+  )) %>% 
+  dplyr::select(c(Gene, reversibility_category)) %>% 
+  rename(genes = Gene) %>%
+  dplyr::filter(genes %in% transformed_data_2$genes)
+
+transformed_data %>% 
+  full_join(temp_here) %>%
+  unnest_longer(genes) %>%
+  right_join(expression_categories) -> data_plot_here
+
+data_plot_here %>%
+  ggplot(aes(x = name, y = value)) + 
+    geom_boxplot(aes(fill = name), alpha = .3, outlier.color = NA) + 
+    geom_point(position = position_dodge(width = .5)) + 
+    geom_line(aes(group = CpG_ID), alpha = .5) + 
+    scale_fill_manual(values = c("grey", "beige")) + 
+    theme_classic(base_size = 20) + xlab("") + ylab("Beta-value (percent methylated)") +
+    ggtitle("Average ATAC-peak methylation") + scale_y_continuous(expand = c(0, 0)) +
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+      facet_wrap(~Condition, nrow = 1)
+ggsave("./Plots/targeted_atac_promoter_all.pdf", height = 12, width = 12)
+
+data_plot_here %>%
+  ggplot(aes(x = name, y = value)) + 
+    geom_boxplot(aes(fill = name), alpha = .3, outlier.color = NA) + 
+    geom_point(position = position_dodge(width = .5)) + 
+    geom_line(aes(group = CpG_ID), alpha = .5) + 
+    scale_fill_manual(values = c("grey", "beige")) + 
+    theme_classic(base_size = 20) + xlab("") + ylab("Beta-value (percent methylated)") +
+    ggtitle("Average ATAC-peak methylation") + scale_y_continuous(expand = c(0, 0)) +
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+      facet_wrap(~reversibility_category + Condition, nrow = 2)
+ggsave("./Plots/Fig_methylation/targeted_atac_promoter_reversibility.pdf", height = 12, width = 12)
+
+data_plot_here %>%
+  pivot_wider(names_from = name, values_from = value) %>%
+  mutate(beta_diff = beta - beta_ref) -> df_plot_7h
+
+df_plot_7h %>%
+  ggplot(aes(x = Condition, y = beta_diff)) +
+    # geom_boxplot(aes(fill = reversibility_category), outlier.color = NA) + 
+    ggbeeswarm::geom_quasirandom(aes(fill = reversibility_category), dodge.width = .8, pch = 21) + 
+    stat_summary(aes(fill = reversibility_category), pch = 21, size = 1, position = position_dodge(width = .8), fun = "median") + 
+    scale_fill_manual(values = c("grey", "darkgreen")) + 
+    theme_classic(base_size = 20) + xlab("") + ylab("Gain in methylation compared to control")
+ggsave("./Plots/Fig_methylation/targeted_atac_promoter_all.pdf", height = 12, width = 12)
+
+## get pvalues for pairwise comparisons:
+data_plot_here %>%
+  pivot_wider(names_from = name, values_from = value) %>%
+  mutate(beta_diff = beta - beta_ref) %>%
+  group_by(Condition, reversibility_category) %>%
+  summarize(beta_diff = list(beta_diff)) %>%
+  pivot_wider(names_from = reversibility_category, values_from = beta_diff) %>%
+  rowwise() %>%
+  mutate(m = wilcox.test(Reversible, Irreversible)$p.value) %>% 
+  dplyr::select(c(Condition, m))
+
+saveRDS(processed_data, "./processed_data_files/atac_peaks.rds")
+# transformed_data_2
+
+```
+
+```{r asdasd}
+# combine source data
+
+source_data_5_met <- list(df_plot_7g, df_plot_7h, df_plot_s9i)
+saveRDS(source_data_5_met, "~/Desktop/PhD/Projects/XChromosome_Antonia_Final/ProcessedData/source_data/source_data_5_met.rds")
+
+```
+
+```{r new_cell}
+
+# myobj$chr <- gsub("chr", "", myobj$chr)
+# 
+# merged_data = regionCounts(myobj, cpg.islands.granges)
+# 
+# sample_anno <- c(
+#   "1" = "Xist21d_Inactive", 
+#   "2" = "Xist21dWashout_Inactive", 
+#   "3" = "Xist21dWashout_Inactive", 
+#   "4" = "Xist21d_Inactive", 
+#   "5" = "Xist7d_Inactive", 
+#   "6" = "Xist7dWashout_Inactive", 
+#   "7" = "Xist7dWashout_Inactive", 
+#   "8" = "Xist7d_Inactive", 
+#   "9" = "Control_Inactive", 
+#   "10" = "Control_Inactive", 
+#   "11" = "Xist21d_Active", 
+#   "12" = "Xist21dWashout_Active", 
+#   "13" = "Xist21dWashout_Active", 
+#   "14" = "Xist21d_Active", 
+#   "15" = "Xist7d_Active", 
+#   "16" = "Xist7dWashout_Active", 
+#   "17" = "Xist7dWashout_Active", 
+#   "18" = "Xist7d_Active", 
+#   "19" = "Control_Active", 
+#   "20" = "Control_Active"
+# )
+# 
+# # names(cpg.islands.granges) <- paste0(gsub("chr", "", seqnames(cpg.islands.granges)), ":", start(cpg.islands.granges), "-", end(cpg.islands.granges))
+# 
+# merged_data %>%
+#   data.frame() %>%
+#   pivot_longer(
+#     -c("chr", "start", "end", "strand"), 
+#     names_to = c("kind", "sample"), 
+#     names_pattern = "(coverage|numCs|numTs)([0-9]*)"
+#   ) %>%
+#   dplyr::filter(kind != "numTs") %>%
+#   pivot_wider(names_from = kind, values_from = value) %>%
+#   mutate(beta = numCs / coverage) %>%
+#   mutate(sample = sample_anno[as.numeric(sample)]) %>%
+#   separate(sample, into = c("Condition", "Activity")) %>%
+#   mutate(Condition = factor(Condition, levels = c("Control", "Xist7d", "Xist7dWashout", "Xist21d", "Xist21dWashout"))) %>%
+#   mutate(CpG_ID = paste0(chr, ":", start, "-", end)) %>% 
+#   mutate(Gene = cpg.islands.granges[CpG_ID]$gene) -> processed_data
+# 
+# processed_data %>%
+#   dplyr::select(-c("chr", "start", "end", "strand", "Condition", "Activity")) %>%
+#   group_by(CpG_ID) %>%
+#   summarize(coverage = sum(coverage), numCs = sum(numCs), beta = mean(beta), across()) -> summarized_data
+# 
+# expression_categories_here <- expression_categories %>% rename(Gene = genes)
+# 
+# processed_data %>%
+#   group_by(CpG_ID, Condition, Activity, Gene) %>%
+#   summarize(beta = sum(numCs) / sum(coverage), coverage = sum(coverage)) %>%
+#   ungroup() %>%
+#   group_by(CpG_ID) %>%
+#   dplyr::filter(all(coverage[Activity == "Inactive"] > 10)) %>%
+#   full_join(expression_categories_here) %>%
+#   mutate(reversibility_category = ifelse(is.na(reversibility_category), "Silenced", reversibility_category)) %>%
+#   dplyr::filter(!is.na(Condition)) -> to_plot
+# 
+# to_plot %>% 
+#   group_by(reversibility_category, CpG_ID) %>%
+#   summarize(n = n()) %>%
+#   group_by(reversibility_category) %>% 
+#   summarize(n = n())
+# 
+# to_plot %>%
+#   ggplot(aes(x = Condition, y = beta, fill = Activity)) +
+#     geom_hline(yintercept = 0:10 / 10, linetype = "dashed", col = "grey") +
+#     geom_boxplot(width=.2, position = "dodge") + 
+#     geom_jitter(aes(fill = Activity), pch = 21, position = position_jitterdodge(jitter.width = .01), outlier.color = NA) + 
+#     scale_fill_manual(values = c("grey", "chocolate")) + 
+#     theme_classic(base_size = 30) + xlab("") + ylab("Beta-value (percent methylated)") + 
+#     ggtitle("Average CpG-island metyhlation") + scale_y_continuous(expand = c(0, 0)) + 
+#     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+#     facet_wrap(~reversibility_category)
+# #ggsave("./Plots/Fig_methylation/cpg_island_methylation_active_inactive_by_gene.pdf", height = 12, width = 18)
+# 
+# ## get pvalues for pairwise comparisons: 
+# processed_data %>%
+#   group_by(CpG_ID, Condition, Activity, coverage) %>%
+#   summarize(beta = sum(numCs) / sum(coverage)) %>%
+#   dplyr::filter(CpG_ID %in% sites_plot$CpG_ID) %>%
+#   ungroup() %>%
+#   group_by(CpG_ID) %>%
+#   dplyr::filter(all(coverage[Activity == "Inactive"] > 10)) %>%
+#   dplyr::filter(Activity == "Inactive") %>% 
+#   group_by(Condition) %>%
+#   summarize(betas = list(beta)) %>%
+#   tidyr::expand(nesting(Condition, betas), nesting(Condition, betas),  .name_repair = "unique") %>%
+#   setNames(tolower(gsub("\\.","", names(.)))) %>%
+#   dplyr::filter(condition1 != condition3) %>%
+#   rowwise() %>%
+#   mutate(pval = wilcox.test(betas2, betas4, paired = T)$p.value) %>% 
+#   ungroup() %>%
+#   mutate(padj = p.adjust(pval, method = "BH")) -> testing_results
+# 
+# testing_results %>% 
+#   dplyr::select(c("condition1", "condition3", "padj")) %>%
+#   dplyr::filter(condition1 == "Control")
+# 
+# processed_data %>% 
+#   dplyr::filter(Activity == "Inactive") -> test
+# 
+# wilcox.test(test[test$Condition == "Control", ]$beta, test[test$Condition == "Xist21d", ]$beta, paired = T)
+# 
+# saveRDS(processed_data, "./processed_data_files/cpg_islands.rds")
+
+```

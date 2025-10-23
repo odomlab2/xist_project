@@ -1,0 +1,219 @@
+---
+title: "XistPaper_Figure01"
+output: html_document
+author: "Jasper Panten"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+Use R version 4.2.0 for this project.
+
+```{r load_libraries}
+
+setwd(paste0(dirname(rstudioapi::getSourceEditorContext()$path), "/../../../"))
+
+library(tidyverse)
+library(ggplot2)
+library(scran)
+library(scater)
+library(DESeq2)
+library(patchwork)
+
+source("./xist_project/Scripts/General/auxiliary.R")
+source("./xist_project/Scripts/General/ase_functions.R")
+
+escape_colors <- setNames(c("grey", "darkgreen", "orange"), nm = c("NPC-specific", "Facultative", "Constitutive"))
+
+```
+
+```{r asdas}
+
+samples_use <- paste0("CL_F", c(23, 24, 25, 26, 27, 29, 32, 34, 35, 37, 38, 42, 47, 49, 54, 66, 69, 74, 75, 77, 85))
+
+data <- readRDS("./ProcessedData/merged_dataset_multiclone.rds")
+data <- data[ , samples_use]
+data_before_filtering <- data[seqnames(rowRanges(data)) == "X", ]
+data_with_autosomes <- data
+
+data <- data[ rowMeans(counts_inactive(data) + counts_active(data)) > 10, ]
+
+data <- data[seqnames(rowRanges(data)) == "X", ]
+dim(data)
+
+```
+
+```{r asd}
+
+## 
+sample_show = "CL_F42"
+
+data.frame(
+  Gene = rownames(data_before_filtering),
+  counts_total = counts(data_before_filtering[,sample_show])[[1]], 
+  counts_allelic = (counts_active(data_before_filtering[,sample_show]) +  counts_inactive(data_before_filtering[,sample_show]))[[1]]
+) -> df_plot_s1a_1
+
+df_plot_s1a_1 %>%
+  ggplot(aes(x = counts_total + 1, y = counts_allelic + 1)) + geom_point() + scale_x_log10() + scale_y_log10() + 
+  theme_paper() + geom_vline(xintercept = 10, linetype = "dashed") + xlab("Total reads mapped") + ylab("Allele-specific reads mapped") + 
+  geom_abline(linetype = "dashed")
+
+data.frame(
+  Gene = rownames(data_with_autosomes), 
+  chromosome = as.character(seqnames(rowRanges(data_with_autosomes))) == "X", 
+  total = (counts_active(data_with_autosomes[,sample_show]) + counts_inactive(data_with_autosomes[,sample_show]))[[1]], 
+  ase =  (counts_active(data_with_autosomes[,sample_show]) / (counts_active(data_with_autosomes[,sample_show]) + counts_inactive(data_with_autosomes[,sample_show])))[[1]] 
+) -> df_plot_s1b_1
+
+df_plot_s1b_1 %>% 
+  ggplot(aes(x = ase, fill = chromosome)) + geom_density() + theme_paper() + ylab("Density") + xlab("CAST / (CAST + 129)") + 
+    scale_fill_manual(values = c("grey", "black"))
+
+data.frame(
+  total = rowSums(counts_inactive(data_before_filtering[,sample_show])) + rowSums(counts_active(data_before_filtering[,sample_show])),
+  ase = rowSums(counts_inactive(data_before_filtering[,sample_show])) / (rowSums(counts_inactive(data_before_filtering[,sample_show])) + rowSums(counts_active(data_before_filtering[,sample_show])))
+) %>% rownames_to_column("Gene") -> df_plot_s1c_1
+
+df_plot_s1c_1 %>%
+  ggplot(aes(total, ase)) + geom_point() + ggrepel::geom_text_repel(aes(label = Gene)) +
+    theme_paper() + scale_x_log10() + geom_hline(yintercept = 0.1, linetype = "dashed") + ggtitle(sample_show) +
+    xlab("Total expression (allelic reads)") + ylab("ASE (d-score)")
+
+## 
+sample_show = "CL_F25"
+
+data.frame(
+  Gene = rownames(data_before_filtering),
+  counts_total = counts(data_before_filtering[,sample_show])[[1]], 
+  counts_allelic = (counts_active(data_before_filtering[,sample_show]) +  counts_inactive(data_before_filtering[,sample_show]))[[1]]
+) -> df_plot_s1a_2
+
+df_plot_s1a_2 %>%
+  ggplot(aes(x = counts_total + 1, y = counts_allelic + 1)) + geom_point() + scale_x_log10() + scale_y_log10() + 
+  theme_paper() + geom_vline(xintercept = 10, linetype = "dashed") + xlab("Total reads mapped") + ylab("Allele-specific reads mapped") + 
+  geom_abline(linetype = "dashed")
+
+data.frame(
+  Gene = rownames(data_with_autosomes),
+  chromosome = as.character(seqnames(rowRanges(data_with_autosomes))) == "X", 
+  total = (counts_active(data_with_autosomes[,sample_show]) + counts_inactive(data_with_autosomes[,sample_show]))[[1]], 
+  ase =  (counts_active(data_with_autosomes[,sample_show]) / (counts_active(data_with_autosomes[,sample_show]) + counts_inactive(data_with_autosomes[,sample_show])))[[1]] 
+) -> df_plot_s1b_2
+
+df_plot_s1b_2 %>% 
+  ggplot(aes(x = ase, fill = chromosome)) + geom_density() + theme_paper() + ylab("Density") + xlab("CAST / (CAST + 129)") + 
+    scale_fill_manual(values = c("grey", "black"))
+
+data.frame(
+  total = rowSums(counts_inactive(data_before_filtering[,sample_show])) + rowSums(counts_active(data_before_filtering[,sample_show])),
+  ase = rowSums(counts_inactive(data_before_filtering[,sample_show])) / (rowSums(counts_inactive(data_before_filtering[,sample_show])) + rowSums(counts_active(data_before_filtering[,sample_show])))
+) %>% rownames_to_column("Gene") -> df_plot_s1c_2
+
+df_plot_s1c_2 %>%
+  ggplot(aes(total, ase)) + geom_point() + ggrepel::geom_text_repel(aes(label = Gene)) +
+    theme_paper() + scale_x_log10() + geom_hline(yintercept = 0.1, linetype = "dashed") + ggtitle(sample_show) +
+    xlab("Total expression (allelic reads)") + ylab("ASE (d-score)")
+
+```
+
+```{r asdas}
+
+# get d-scores across genes + samples
+ratios <- counts_inactive(data) / (counts_inactive(data) + counts_active(data))
+
+# Genes with average ASE > 0.7 in the control sample are likely mapping artefacts: 
+genes_out <- names(rowMeans(ratios, na.rm = T)[rowMeans(ratios, na.rm = T) > 0.8 | rownames(ratios) == "Xist"])
+genes_out_na <- rownames( ratios[!apply(ratios, 1, function(x){!any(is.na(x))}), ] )
+
+genes_out <- c(genes_out, genes_out_na)
+
+ratios <- ratios[!rownames(ratios) %in% genes_out, ]
+
+genes_show <- c("Xist", "Mecp2", "Kdm6a", "Kdm5c")
+genes_of_choice <- setNames(rep("", nrow(ratios)), rownames(ratios))
+genes_of_choice[genes_show] <- genes_show
+
+# Plot d-scores for genes after ordering the genes by chromosomale coordinate
+ratios %>%
+  t() %>% data.frame(check.names = F) %>%
+  mutate(Sample = colnames(ratios)) %>%
+  pivot_longer(-c(Sample)) %>%
+  add_column(position = start(rowRanges(data[as.character(.$name), ]))) %>%
+  ggplot(aes(Sample, y = reorder(name, position), fill = value)) + geom_tile(width = 0.9) +
+    theme_paper() + theme(axis.text.x=element_text(angle = 90, hjust = 1)) + 
+    theme(axis.ticks.y = element_blank()) + xlab("") + ylab("Chromosome position") + 
+    scale_fill_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white") + 
+    scale_y_discrete(labels = genes_of_choice, position = "right") + ylab("") + labs(fill = "d-score")
+
+escapees <- apply(ratios, 2, function(x){x > 0.1})
+escapees_per_clone <- apply(escapees, 2, function(x){rownames(escapees)[x]})
+escapees_per_clone <- lapply(escapees_per_clone, function(x){x[x != "Xist"]})
+
+lapply(escapees_per_clone, length) %>% unlist() %>% sort()
+
+lapply(names(escapees_per_clone), function(cl){data.frame(Clone = cl, ratios = escapees_per_clone[[cl]])}) %>%
+  do.call("rbind", .) -> escapees_per_clone_df
+
+ratios %>%
+  t() %>% data.frame(check.names = F) %>%
+  mutate(Sample = colnames(ratios)) %>%
+  pivot_longer(-c(Sample)) %>%
+  dplyr::filter(value > 0.1) %>%
+  group_by(name) %>%
+  mutate(escape_in_clones = n() >= ncol(ratios)) -> df_plot_s1d
+
+df_plot_s1d %>% # CAVE - here we need to adjust
+  ggplot(aes(x = Sample, fill = escape_in_clones)) + geom_bar() + theme_paper() + 
+    theme(axis.text.x=element_text(angle = 45, hjust = 1)) + xlab("") + ylab("Number of genes with d-score > 0.1") + 
+    scale_fill_manual(values = c("grey", "darkred"), name = "Escape in all samples")
+
+ratios %>%
+  t() %>% data.frame(check.names = F) %>%
+  mutate(Sample = colnames(ratios)) %>%
+  pivot_longer(-c(Sample)) %>%
+  dplyr::filter(value > 0.1) %>%
+  group_by(name) %>%
+  mutate(escape_in_clones = n() >= ncol(ratios))  %>% 
+  dplyr::filter(escape_in_clones) %>% pull(name) %>% unique() -> common_escapees
+
+# escape_in_clones
+ratios_here <- ratios
+size_factors <- calculateSumFactors(data[rownames(data) != "Xist", ])
+
+data.frame(
+  xist_expression = as.numeric(counts(data)["Xist", ]) / size_factors, 
+  average_escape = unlist(lapply(colnames(ratios_here), function(x){mean(ratios_here[, x])}))
+) %>% mutate(xist_expression = xist_expression / min(xist_expression)) -> df_here
+
+library(ggpubr)
+df_here -> df_plot_1a
+
+df_plot_1a %>%
+  ggplot(aes(x = xist_expression, y = average_escape)) + 
+    geom_point(size = 10) + 
+    geom_smooth(method = 'lm') + stat_cor(method = "pearson") + 
+    theme_paper(textsize = 30) + geom_vline(xintercept = 1, linetype = 'dashed') + xlab("Xist expression")
+
+```
+
+```{r asdasd}
+# combine source data
+
+df_plot_s1a <- rbind(cbind(df_plot_s1a_1, "Clone" = "F42"), 
+                     cbind(df_plot_s1a_2, "Clone" = "F25"))
+df_plot_s1b <- rbind(cbind(df_plot_s1b_1, "Clone" = "F42"), 
+                     cbind(df_plot_s1b_2, "Clone" = "F25"))
+df_plot_s1c <- rbind(cbind(df_plot_s1c_1, "Clone" = "F42"), 
+                     cbind(df_plot_s1c_2, "Clone" = "F25"))
+
+source_data_0 <- list(df_plot_1a, 
+                      df_plot_s1a, df_plot_s1b, df_plot_s1c, df_plot_s1d)
+saveRDS(source_data_0, "./ProcessedData/source_data/source_data_0.rds")
+
+```
+

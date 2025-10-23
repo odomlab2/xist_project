@@ -1,0 +1,610 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-12-23"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r asss}
+
+library(tidyverse)
+library(DESeq2)
+
+theme_paper <- function(textsize = 20){
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"),
+        panel.border = element_rect(colour = "black", fill=NA, size=1), 
+        text = element_text(size = textsize, color = "black"), 
+        axis.text = element_text(size = textsize, color = "black"), 
+        axis.ticks = element_line(colour = 'black', size = 1), 
+        axis.ticks.length = unit(.25, "cm"))
+}
+
+
+# reorganize into allelically resolved: 
+reorganize_sce <- function(sce){
+  sce.hap1 <- sce[ , grepl("C57BL-6J", sce$bam.files)]
+  sce.hap2 <- sce[ , grepl("CAST-EiJ", sce$bam.files)]
+  sce.total <- sce[ , grepl("Gall", sce$bam.files)]
+  
+  # important: we reassign files that are incorrectly annotated here
+  # sce.hap1 <- sce.hap1[ , c(1:4, 6, 5, 7:12, 14, 13, 15:20) ]
+  # sce.hap2 <- sce.hap2[ , c(1:4, 6, 5, 7:12, 14, 13, 15:20) ]
+  
+  sce.output <- SummarizedExperiment(assays = 
+                                       list("counts_reference" = assays(sce.hap1)[["counts"]][ , c(1:4, 6, 5, 7:12, 14, 13, 15:20)], 
+                                            "counts_alternative" = assays(sce.hap2)[["counts"]][ , c(1:4, 6, 5, 7:12, 14, 13, 15:20)], 
+                                            "counts_total" = assays(sce.total)[["counts"]][ , c(1:4, 6, 5, 7:12, 14, 13, 15:20)]), 
+                                     rowRanges = rowRanges(sce), 
+                                     colData = colData(sce.total))
+  sce.output
+}
+
+reorganize_sce2 <- function(sce){
+  sce.hap1 <- sce[ , grepl("C57BL-6J", sce$bam.files)]
+  sce.hap2 <- sce[ , grepl("CAST-EiJ", sce$bam.files)]
+  
+  # important: we reassign files that are incorrectly annotated here
+  # sce.hap1 <- sce.hap1[ , c(1:4, 6, 5, 7:12, 14, 13, 15:20) ]
+  # sce.hap2 <- sce.hap2[ , c(1:4, 6, 5, 7:12, 14, 13, 15:20) ]
+  
+  sce.output <- SummarizedExperiment(assays = 
+                                       list("counts_reference" = assays(sce.hap1)[["counts"]][ , c(1:4, 6, 5, 7:12, 14, 13, 15:20)], 
+                                            "counts_alternative" = assays(sce.hap2)[["counts"]][ , c(1:4, 6, 5, 7:12, 14, 13, 15:20)]), 
+                                     rowRanges = rowRanges(sce), 
+                                     colData = colData(sce.hap1))
+  sce.output
+}
+
+setwd("~/Desktop/PhD/Projects/XChromosome_Antonia_Final//")
+
+# genebody counts
+test <- readRDS("~/Desktop/Revision Antonia Paper/bg_GeneBodies_all (1).bam_allchr_E6Xist")
+test
+
+data_genebodies <- reorganize_sce(test)
+data_genebodies <- data_genebodies[rowMeans(assays(data_genebodies)[["counts_reference"]] + assays(data_genebodies)[["counts_alternative"]]) > 5, ]
+
+# promoter counts
+test <- readRDS("~/Desktop/Revision Antonia Paper/bg_promoters_-500+1000_all (1).bam_allchr_E6Xist")
+test
+
+data_promoters <- reorganize_sce(test)
+data_promoters <- data_promoters[rowMeans(assays(data_promoters)[["counts_reference"]] + assays(data_promoters)[["counts_alternative"]]) > 5, ]
+
+# window counts counts
+test <- readRDS("./Data/cut_and_run_antonia/bg_10000_all.bam_allchr_E6Xist_allelic.rds")
+test <- test[rowMeans(assays(test)[["counts"]]) > 10, ]
+
+data_windows <- reorganize_sce2(test)
+data_windows <- data_windows[rowMeans(assays(data_windows)[["counts_reference"]] + assays(data_windows)[["counts_alternative"]]) > 5, ]
+
+# exclude windows that overlap promoters or gene bodies
+overlaps_genebodies <- from(findOverlaps(rowRanges(data_windows), rowRanges(data_genebodies), minoverlap = 1))
+overlaps_promoters <- from(findOverlaps(rowRanges(data_windows), rowRanges(data_promoters), minoverlap = 1))
+
+overlaps <- rep("Intergenic", length(data_windows))
+overlaps[setdiff(overlaps_genebodies, overlaps_promoters)] <- "Genebody"
+overlaps[setdiff(overlaps_promoters, overlaps_genebodies)] <- "Promoter"
+overlaps[intersect(overlaps_promoters, overlaps_genebodies)] <- "Genebody, Promoter"
+
+condition_conversion <- c(
+  "NoDox" = "Control",
+  "7dDox" = "7d Dox",
+  "7dD7dWO" = "7d Dox (Washout)",
+  "21dD" = "21d Dox",
+  "21dDox" = "21d Dox",
+  "21dD7dWO" = "21d Dox (Washout)"
+)
+
+# get size factors from full dataset: 
+total_counts_dataset <- readRDS("./Data/cut_and_run_antonia/all.genes_all.bam_all.chr_E6Xist")
+
+deseq_sizefactors_ubi <- readRDS("./ProcessedData/deseq_ubi_total.rds") %>% colData() %>% data.frame() %>% pull(sizeFactor, name = Condition)
+deseq_sizefactors_met <- readRDS("./ProcessedData/deseq_met_total.rds") %>% colData() %>% data.frame() %>% pull(sizeFactor, name = Condition)
+
+sfdf_ubi <- readRDS("./ProcessedData/deseq_ubi_total.rds") %>% colData() %>% data.frame() %>% dplyr::select(c("bam.files", "HistoneMark", "Condition", "Replicate", "sizeFactor")) %>% mutate(bam.files = basename(bam.files)) %>% rownames_to_column("Sample") %>% column_to_rownames("bam.files")
+sfdf_met <- readRDS("./ProcessedData/deseq_met_total.rds") %>% colData() %>% data.frame() %>% dplyr::select(c("bam.files", "HistoneMark", "Condition", "Replicate", "sizeFactor")) %>% mutate(bam.files = basename(bam.files)) %>% rownames_to_column("Sample") %>% column_to_rownames("bam.files")
+
+metadata_1 <- readRDS("./ProcessedData/deseq_ubi_total.rds") %>% colData() %>% data.frame() %>% dplyr::select(c("bam.files", "HistoneMark", "Condition", "Replicate", "sizeFactor"))
+
+metadata_2 <- readRDS("./ProcessedData/deseq_met_total.rds") %>% colData() %>% data.frame() %>% dplyr::select(c("bam.files", "HistoneMark", "Condition", "Replicate", "sizeFactor"))
+
+metadata <- rbind(metadata_1, metadata_2) %>%
+  mutate(bam.files = basename(bam.files)) %>% 
+  rownames_to_column("Sample") %>%
+  mutate(bam.files = gsub("_Gall_sorted.bam", "", bam.files)) %>%
+  column_to_rownames("bam.files")
+
+saveRDS(metadata, "./ProcessedData/cnr_metadata.rds")
+
+```
+
+Try with windows for intergenic, annotated promoters / enhancers for the rest
+
+```{r asdasda}
+
+### stratify by effects on escape: 
+escape_results <- read_csv("./ProcessedData/figure3_d_score_differences.csv")
+
+escape_results %>% 
+  mutate(gene_category = case_when(
+    - `Dox (21 days), Washout (0 days)_dif` < .2 & - `Dox (21 days), Washout (7 days)_dif` < .2 ~ "Unresponsive", 
+    - `Dox (21 days), Washout (0 days)_dif` > .2 & - `Dox (21 days), Washout (7 days)_dif` > .2 ~ "Responsive, Irreversible",
+    - `Dox (21 days), Washout (0 days)_dif` > .2 & - `Dox (21 days), Washout (7 days)_dif` < .2 ~ "Responsive, Reversible", 
+    .default = "test")) %>%
+  dplyr::rename(Symbol = name) -> gene_annotation
+
+gene_annotation %>% 
+  ggplot(aes(x =  - `Dox (21 days), Washout (0 days)_dif`,  - `Dox (21 days), Washout (7 days)_dif`)) + geom_point(aes(col = gene_category)) + 
+    xlab("Dox effect") + ylab("Reversibility") + ggrepel::geom_text_repel(aes(label = Symbol))
+
+write.csv(gene_annotation, "./ProcessedData/reversible_irreversible_genes.csv")
+
+all_genes <- genes(EnsDb.Mmusculus.v79)
+
+```
+
+```{r collect_data}
+
+# assemble window counts
+data_ref = assays(data_windows)[["counts_reference"]] %>% data.frame()
+rownames(data_ref) <- paste0("Windows_", 1:nrow(data_ref))
+colnames(data_ref) <- gsub("_C57BL-6J_sorted_rmdup.bam", "", basename(colData(data_windows)$bam.files))
+
+data_ref <- data_ref %>% 
+  rownames_to_column("Window") %>% 
+  add_column(Overlap = overlaps) %>%
+  add_column("Chr" = as.character(seqnames(rowRanges(data_windows)))) %>%
+  add_column("Start" = as.numeric(start(rowRanges(data_windows)))) %>%
+  add_column("End" = as.numeric(end(rowRanges(data_windows)))) %>%
+  pivot_longer(-c("Window", "Overlap", "Chr", "Start", "End")) %>%
+  separate_wider_delim(name, delim = "_", names = c("Condition", "HistoneMark")) %>%
+  mutate(Replicate = str_extract(Condition, "r[0-9]")) %>%
+  mutate(Condition = gsub("r[0-9]$", "", Condition)) %>%
+  mutate(Condition = gsub("^E6", "", Condition)) %>%
+  add_column(Allele = "Xi")
+
+data_alt = assays(data_windows)[["counts_alternative"]] %>% data.frame()
+rownames(data_alt) <- paste0("Windows_", 1:nrow(data_alt))
+colnames(data_alt) <- gsub("_C57BL-6J_sorted_rmdup.bam", "", basename(colData(data_windows)$bam.files))
+
+data_alt <- data_alt %>% 
+  rownames_to_column("Window") %>% 
+  add_column(Overlap = overlaps) %>%
+  add_column("Chr" = as.character(seqnames(rowRanges(data_windows)))) %>%
+  add_column("Start" = as.numeric(start(rowRanges(data_windows)))) %>%
+  add_column("End" = as.numeric(end(rowRanges(data_windows)))) %>%
+  pivot_longer(-c("Window", "Overlap", "Chr", "Start", "End")) %>%
+  separate_wider_delim(name, delim = "_", names = c("Condition", "HistoneMark")) %>%
+  mutate(Replicate = str_extract(Condition, "r[0-9]")) %>%
+  mutate(Condition = gsub("r[0-9]$", "", Condition)) %>%
+  mutate(Condition = gsub("^E6", "", Condition)) %>%
+  add_column(Allele = "Xa")
+
+data_long_windows <- rbind(data_ref, data_alt) %>% 
+  mutate(size_factor = rbind(sfdf_ubi, sfdf_met)[paste0("E6", Condition, Replicate, "_", HistoneMark, "_Gall_sorted.bam"), ]$sizeFactor) %>%
+  mutate(value_norm = value / size_factor) %>%
+  mutate(Condition = ifelse(Condition == "21dD", "21dDox", Condition)) # one condition is labelled as 21dDox, one as 21dD, correct this here
+
+rm(data_ref, data_alt)
+
+# add gene body counts
+data_ref = assays(data_genebodies)[["counts_reference"]] %>% data.frame()
+rownames(data_ref) <- rowData(data_genebodies)$gene_name
+colnames(data_ref) <- gsub("_Gall_sorted.bam", "", basename(colData(data_genebodies)$bam.files))
+
+data_ref <- data_ref %>% 
+  rownames_to_column("Gene") %>%
+  add_column("Chr" = as.character(seqnames(rowRanges(data_genebodies)))) %>%
+  add_column("Start" = as.numeric(start(rowRanges(data_genebodies)))) %>%
+  add_column("End" = as.numeric(end(rowRanges(data_genebodies)))) %>% 
+  pivot_longer(-c("Gene", "Chr", "Start", "End")) %>%
+  separate_wider_delim(name, delim = "_", names = c("Condition", "HistoneMark")) %>%
+  mutate(Replicate = str_extract(Condition, "r[0-9]")) %>%
+  mutate(Condition = gsub("r[0-9]$", "", Condition)) %>%
+  mutate(Condition = gsub("^E6", "", Condition)) %>%
+  add_column(Allele = "Xi")
+
+data_alt = assays(data_genebodies)[["counts_alternative"]] %>% data.frame()
+rownames(data_alt) <- rowData(data_genebodies)$gene_name
+colnames(data_alt) <- gsub("_Gall_sorted.bam", "", basename(colData(data_genebodies)$bam.files))
+
+data_alt <- data_alt %>% 
+  rownames_to_column("Gene") %>%
+  add_column("Chr" = as.character(seqnames(rowRanges(data_genebodies)))) %>%
+  add_column("Start" = as.numeric(start(rowRanges(data_genebodies)))) %>%
+  add_column("End" = as.numeric(end(rowRanges(data_genebodies)))) %>% 
+  pivot_longer(-c("Gene", "Chr", "Start", "End")) %>%
+  separate_wider_delim(name, delim = "_", names = c("Condition", "HistoneMark")) %>%
+  mutate(Replicate = str_extract(Condition, "r[0-9]")) %>%
+  mutate(Condition = gsub("r[0-9]$", "", Condition)) %>%
+  mutate(Condition = gsub("^E6", "", Condition)) %>%
+  add_column(Allele = "Xa")
+
+data_long_genebodies <- rbind(data_ref, data_alt) %>% 
+  mutate(size_factor = rbind(sfdf_ubi, sfdf_met)[paste0("E6", Condition, Replicate, "_", HistoneMark, "_Gall_sorted.bam"), ]$sizeFactor) %>%
+  mutate(value_norm = value / size_factor) %>%
+  mutate(Condition = ifelse(Condition == "21dD", "21dDox", Condition)) %>%# one condition is labelled as 21dDox, one as 21dD, correct this here
+  rename(Gene = "Symbol") %>% 
+  add_column(Context = "Genebody")
+
+rm(data_ref, data_alt)
+
+# add promoter counts
+data_ref = assays(data_promoters)[["counts_reference"]] %>% data.frame()
+rownames(data_ref) <- all_genes[rownames(data_ref), ]$gene_name
+colnames(data_ref) <- gsub("_Gall_sorted.bam", "", basename(colData(data_promoters)$bam.files))
+
+data_ref <- data_ref %>% 
+  rownames_to_column("Gene") %>%
+  add_column("Chr" = as.character(seqnames(rowRanges(data_promoters)))) %>%
+  add_column("Start" = as.numeric(start(rowRanges(data_promoters)))) %>%
+  add_column("End" = as.numeric(end(rowRanges(data_promoters)))) %>% 
+  pivot_longer(-c("Gene", "Chr", "Start", "End")) %>%
+  separate_wider_delim(name, delim = "_", names = c("Condition", "HistoneMark")) %>%
+  mutate(Replicate = str_extract(Condition, "r[0-9]")) %>%
+  mutate(Condition = gsub("r[0-9]$", "", Condition)) %>%
+  mutate(Condition = gsub("^E6", "", Condition)) %>%
+  add_column(Allele = "Xi")
+
+data_alt = assays(data_promoters)[["counts_alternative"]] %>% data.frame()
+rownames(data_alt) <- all_genes[rownames(data_alt), ]$gene_name
+colnames(data_alt) <- gsub("_Gall_sorted.bam", "", basename(colData(data_promoters)$bam.files))
+
+data_alt <- data_alt %>% 
+  rownames_to_column("Gene") %>%
+  add_column("Chr" = as.character(seqnames(rowRanges(data_promoters)))) %>%
+  add_column("Start" = as.numeric(start(rowRanges(data_promoters)))) %>%
+  add_column("End" = as.numeric(end(rowRanges(data_promoters)))) %>% 
+  pivot_longer(-c("Gene", "Chr", "Start", "End")) %>%
+  separate_wider_delim(name, delim = "_", names = c("Condition", "HistoneMark")) %>%
+  mutate(Replicate = str_extract(Condition, "r[0-9]")) %>%
+  mutate(Condition = gsub("r[0-9]$", "", Condition)) %>%
+  mutate(Condition = gsub("^E6", "", Condition)) %>%
+  add_column(Allele = "Xa")
+
+data_long_promoters <- rbind(data_ref, data_alt) %>% 
+  mutate(size_factor = rbind(sfdf_ubi, sfdf_met)[paste0("E6", Condition, Replicate, "_", HistoneMark, "_Gall_sorted.bam"), ]$sizeFactor) %>%
+  mutate(value_norm = value / size_factor) %>%
+  mutate(Condition = ifelse(Condition == "21dD", "21dDox", Condition)) %>%# one condition is labelled as 21dDox, one as 21dD, correct this here
+  rename(Gene = "Symbol") %>% 
+  add_column(Context = "Promoter")
+
+rm(data_ref, data_alt)
+
+# 
+data_long_windows %>% dplyr::filter(Overlap == "Intergenic") %>% rename(Window = "Symbol") %>% dplyr::select(-c("Overlap")) %>% 
+  add_column(Context = "Intergenic") %>%
+  rbind(data_long_genebodies) %>% 
+  rbind(data_long_promoters) %>% 
+  full_join(gene_annotation[ , c("escape_status", "gene_category", "Symbol")]) -> data_long
+
+# normalize signal on 1000 / feature length
+data_long %>% 
+  mutate(value_norm = value_norm / (End - Start) * 10000) -> data_long
+
+```
+
+
+```{r plots}
+
+# check that distributions are fine to make sure that normalization worked
+data_long %>%
+  dplyr::filter(Chr != "chrX") %>%
+  ggplot(aes(x = paste0(Condition, "_", Replicate), y = value_norm)) + geom_violin() + 
+    facet_wrap(~Allele+HistoneMark) + scale_y_log10() + 
+    coord_flip() # check
+
+data_long %>% 
+  dplyr::filter(Chr != "chrX") %>%
+  dplyr::filter(Condition == "NoDox") %>%
+  ggplot(aes(x = Context, col = Replicate)) + 
+    geom_boxplot(aes(y = value_norm)) + 
+    facet_wrap(~Allele+HistoneMark) + scale_y_log10() + 
+    coord_flip() # check
+ggsave("./Plots/latest_figure/levels_per_region.pdf", width = 20, height = 12)
+
+data_long_x <- data_long %>% 
+  dplyr::filter(Chr == "chrX") %>%
+  group_by(Symbol, HistoneMark, Replicate, Allele) %>%
+  mutate(fold_change = log2((value_norm + 1) / (value_norm[Condition == "NoDox"] + 1))) %>%
+  mutate(Context = factor(Context, levels = c("Intergenic", "Promoter", "Genebody"))) %>%
+  mutate(Condition = factor(Condition, levels = c("NoDox", "7dDox", "7dD7dWO", "21dDox", "21dD7dWO")))
+
+data_long_x %>%
+  dplyr::select(-c(size_factor, value, fold_change)) %>%
+  mutate(value_norm = log2(value_norm)) %>%
+  group_by(Symbol, Condition, Context, Allele, HistoneMark) %>%
+  summarize(value_norm = mean(value_norm)) %>% 
+  dplyr::filter(Allele != "Xa") %>% 
+  pivot_wider(names_from = HistoneMark, values_from = value_norm) %>%
+  dplyr::filter(Context != "Genebody, Promoter") -> df_plot_7a
+
+df_plot_7a %>%
+  ggplot(aes(x = H2AK119ubi, y = H3K27me3)) + 
+    ggdensity::geom_hdr() + 
+    facet_wrap(~Condition) + scale_fill_distiller(palette = "Blues", direction = 1) + 
+    theme_paper()
+ggsave("./Plots/latest_figure/histone_marks_density.pdf", width = 20, height = 12)
+
+data_long_x %>%
+  dplyr::filter(HistoneMark == "H2AK119ubi") %>%
+  ggplot(aes(x = Condition, fill = paste0(Allele, "_", Replicate))) + 
+    geom_boxplot(aes(y = value_norm), outlier.color = NA) + 
+    scale_fill_manual(values = c("black", "darkgrey", "darkred", "red")) + 
+    facet_wrap(~HistoneMark + Context, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+    theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts") + ylim(c(0, 200))
+ggsave("./Plots/latest_figure/gains_overall_ubi.pdf", width = 20, height = 12)
+
+data_long_x %>%
+ dplyr::filter(HistoneMark == "H3K27me3") %>%
+ ggplot(aes(x = Condition, fill = paste0(Allele, "_", Replicate))) + 
+    geom_boxplot(aes(y = value_norm), outlier.color = NA) + 
+    scale_fill_manual(values = c("black", "darkgrey", "darkred", "red")) + 
+    facet_wrap(~HistoneMark + Context, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+    theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts")  + ylim(c(0, 700))
+ggsave("./Plots/latest_figure/gains_overall_met.pdf", width = 20, height = 12)
+
+### all genes
+data_long_x %>%
+  dplyr::filter(HistoneMark == "H2AK119ubi") %>%
+  group_by(HistoneMark, Condition, Allele, Context, Symbol) %>%
+  summarize(value_norm = mean(value_norm)) %>%
+  ggplot(aes(x = Condition, fill = paste0(Allele))) + 
+    geom_boxplot(aes(y = value_norm), outlier.color = NA) + 
+    scale_fill_manual(values = c("black", "orange2")) + 
+    facet_wrap(~HistoneMark + Context, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+    theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts") + ylim(c(0, 200))
+ggsave("./Plots/latest_figure/gains_overall_ubi_merged.pdf", width = 20, height = 12)
+
+data_long_x %>%
+ dplyr::filter(HistoneMark == "H3K27me3") %>%
+ group_by(HistoneMark, Condition, Allele, Context, Symbol) %>%
+  summarize(value_norm = mean(value_norm)) %>%
+  ggplot(aes(x = Condition, fill = paste0(Allele))) + 
+    geom_boxplot(aes(y = value_norm), outlier.color = NA) + 
+    scale_fill_manual(values = c("black", "red")) + 
+    facet_wrap(~HistoneMark + Context, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+    theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts") + ylim(c(0, 550))
+ggsave("./Plots/latest_figure/gains_overall_met_merged.pdf", width = 20, height = 12)
+
+# escapees
+data_long_x %>%
+  dplyr::filter(HistoneMark == "H2AK119ubi") %>%
+  # dplyr::filter(Context %in% c("Promoter", "Genebody")) %>%
+  dplyr::filter(!is.na(escape_status) | Context == "Intergenic") %>%
+  group_by(HistoneMark, Condition, Allele, Context, Symbol) %>%
+  summarize(value_norm = mean(value_norm)) -> df_plot_7c
+
+df_plot_7c %>%
+  ggplot(aes(x = Condition, fill = paste0(Allele))) + 
+    geom_boxplot(aes(y = value_norm), outlier.color = NA) + 
+    scale_fill_manual(values = c("black", "orange2")) + 
+    facet_wrap(~HistoneMark + Context, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+    theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts") + ylim(c(0, 200))
+ggsave("./Plots/latest_figure/gains_overall_ubi_merged_escapees.pdf", width = 20, height = 12)
+
+data_long_x %>%
+  dplyr::filter(HistoneMark == "H3K27me3") %>%
+  # dplyr::filter(Context %in% c("Promoter", "Genebody")) %>%
+  dplyr::filter(!is.na(escape_status) | Context == "Intergenic") %>%
+  group_by(HistoneMark, Condition, Allele, Context, Symbol) %>%
+  summarize(value_norm = mean(value_norm)) ->  df_plot_7b
+
+df_plot_7b %>%
+  ggplot(aes(x = Condition, fill = paste0(Allele))) + 
+    geom_boxplot(aes(y = value_norm), outlier.color = NA) + 
+    scale_fill_manual(values = c("black", "red")) + 
+    facet_wrap(~HistoneMark + Context, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+    theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts") + ylim(c(0, 550))
+ggsave("./Plots/latest_figure/gains_overall_me3_merged_escapees.pdf", width = 20, height = 12)
+
+# non-escapees
+data_long_x %>%
+  dplyr::filter(HistoneMark == "H2AK119ubi") %>%
+  dplyr::filter(is.na(escape_status) | Context == "Intergenic") %>%
+  group_by(HistoneMark, Condition, Allele, Context, Symbol) %>%
+  summarize(value_norm = mean(value_norm)) -> df_plot_s9d
+
+df_plot_s9d %>%
+  ggplot(aes(x = Condition, fill = paste0(Allele))) + 
+    geom_boxplot(aes(y = value_norm), outlier.color = NA) + 
+    scale_fill_manual(values = c("black", "orange2")) + 
+    facet_wrap(~HistoneMark + Context, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+    theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts") + ylim(c(0, 200))
+ggsave("./Plots/latest_figure/gains_overall_ubi_merged_nonescapees.pdf", width = 20, height = 12)
+
+data_long_x %>%
+  dplyr::filter(HistoneMark == "H3K27me3") %>%
+  dplyr::filter(is.na(escape_status) | Context == "Intergenic") %>%
+  group_by(HistoneMark, Condition, Allele, Context, Symbol) %>%
+  summarize(value_norm = mean(value_norm)) -> df_plot_s9c
+
+df_plot_s9c %>%
+  ggplot(aes(x = Condition, fill = paste0(Allele))) + 
+    geom_boxplot(aes(y = value_norm), outlier.color = NA) + 
+    scale_fill_manual(values = c("black", "red")) + 
+    facet_wrap(~HistoneMark + Context, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+    theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts") + ylim(c(0, 550))
+ggsave("./Plots/latest_figure/gains_overall_me3_merged_nonescapees.pdf", width = 20, height = 12)
+
+#
+
+
+```
+
+```{r assssds}
+
+data_long_genebodies <- data_long %>% dplyr::filter(Context == "Genebody")
+
+data_long %>%
+  dplyr::filter(Chr == "chrX") %>%
+  dplyr::filter(HistoneMark == "H2AK119ubi") %>%
+  dplyr::filter(gene_category != "Unresponsive") %>%
+  group_by(Symbol, Condition, HistoneMark, Allele, escape_status, gene_category) %>%
+  summarize(value_norm = mean(value_norm)) %>%
+  dplyr::filter(Allele != "Xa") %>%
+  mutate(Condition = factor(Condition, levels = c("NoDox", "7dDox", "7dD7dWO", "21dDox", "21dD7dWO"))) %>%
+  mutate(gene_category = factor(gene_category, levels = c("Responsive, Reversible", "Responsive, Irreversible"))) %>%
+  ggplot(aes(x = Condition, col = gene_category)) + 
+    stat_summary(aes(y = value_norm), position = position_dodge(width = .5), size = 2) + 
+    facet_wrap(~HistoneMark, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+    theme_paper() + labs(fill = "") + ylab("Normalized Counts") + 
+    scale_color_manual(values = c("darkgreen", "grey")) + xlab("")
+ggsave("./Plots/latest_figure/gains_reversible_irreversible_ubi.pdf", width = 10, height = 12)
+
+data_long %>%
+  dplyr::filter(Chr == "chrX") %>%
+  dplyr::filter(HistoneMark == "H3K27me3") %>%
+  dplyr::filter(gene_category != "Unresponsive") %>%
+  group_by(Symbol, Condition, HistoneMark, Allele, escape_status, gene_category) %>%
+  summarize(value_norm = mean(value_norm)) %>%
+  dplyr::filter(Allele != "Xa") %>%
+  mutate(Condition = factor(Condition, levels = c("NoDox", "7dDox", "7dD7dWO", "21dDox", "21dD7dWO"))) %>%
+  mutate(gene_category = factor(gene_category, levels = c("Responsive, Reversible", "Responsive, Irreversible"))) %>%
+  ggplot(aes(x = Condition, col = gene_category)) + 
+    stat_summary(aes(y = value_norm), position = position_dodge(width = .5), size = 2) + 
+    facet_wrap(~HistoneMark, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+    theme_paper() + labs(fill = "") + ylab("Normalized Counts") + 
+    scale_color_manual(values = c("darkgreen", "grey")) + xlab("")
+ggsave("./Plots/latest_figure/gains_reversible_irreversible_me3.pdf", width = 10, height = 12)
+
+data_long %>%
+  dplyr::filter(Chr == "chrX") %>%
+  dplyr::filter(gene_category != "Unresponsive") %>%
+  group_by(Symbol, Condition, HistoneMark, Allele, escape_status, gene_category) %>%
+  summarize(value_norm = mean(value_norm)) %>%
+  dplyr::filter(Allele != "Xa") %>%
+  mutate(Condition = factor(Condition, levels = c("NoDox", "7dDox", "7dD7dWO", "21dDox", "21dD7dWO"))) %>%
+  mutate(gene_category = factor(gene_category, levels = c("Responsive, Reversible", "Responsive, Irreversible"))) -> df_plot_7d
+
+data_long %>%
+  dplyr::filter(Chr == "chrX") %>%
+  dplyr::filter(HistoneMark == "H2AK119ubi") %>%
+  dplyr::filter(gene_category != "Unresponsive") %>%
+  group_by(Symbol, Condition, HistoneMark, Allele, escape_status, gene_category) %>%
+  summarize(value_norm = mean(value_norm)) %>%
+  dplyr::filter(Allele != "Xa") %>%
+  dplyr::filter(Condition %in% c("NoDox", "21dDox", "21dD7dWO")) %>%
+  dplyr::select(c("Symbol", "Condition", "escape_status", "gene_category", "value_norm")) %>%
+  pivot_wider(names_from = Condition, values_from = value_norm) %>%
+  mutate(FC_dox = log(`21dDox` + 1) - log(NoDox + 1), FC_wo = log(`21dD7dWO` + 1) - log(NoDox + 1)) %>% 
+  arrange(-FC_wo) -> df_plot_s9g 
+
+df_plot_s9g %>% 
+  ggplot(aes(x = FC_dox, y = FC_wo, col = gene_category)) + geom_point(size = 3) +
+    ggrepel::geom_text_repel(aes(label = Symbol)) + geom_abline() + theme_paper(textsize = 25) + 
+    scale_color_manual(values = c("grey", "darkgreen")) + 
+    xlab("Fold-change Xist") + ylab("Fold-change Washout") + labs(color = "Category") + coord_fixed() + 
+    xlim(c(-1, 2)) + ylim(c(-1, 2))
+ggsave("./Plots/latest_figure/gains_reversible_irreversible_scatter_ubi.pdf", width = 12, height = 7)
+
+data_long %>%
+  dplyr::filter(Chr == "chrX") %>%
+  dplyr::filter(HistoneMark == "H3K27me3") %>%
+  dplyr::filter(gene_category != "Unresponsive") %>%
+  group_by(Symbol, Condition, HistoneMark, Allele, escape_status, gene_category) %>%
+  summarize(value_norm = mean(value_norm)) %>%
+  dplyr::filter(Allele != "Xa") %>%
+  dplyr::filter(Condition %in% c("NoDox", "21dDox", "21dD7dWO")) %>%
+  dplyr::select(c("Symbol", "Condition", "escape_status", "gene_category", "value_norm")) %>%
+  pivot_wider(names_from = Condition, values_from = value_norm) %>%
+  mutate(FC_dox = log(`21dDox` + 1) - log(NoDox + 1), FC_wo = log(`21dD7dWO` + 1) - log(NoDox + 1)) %>% 
+  arrange(-FC_wo) -> df_plot_s9h
+
+df_plot_s9h %>% 
+  ggplot(aes(x = FC_dox, y = FC_wo, col = gene_category)) + geom_point(size = 3) +
+    ggrepel::geom_text_repel(aes(label = Symbol)) + geom_abline() + theme_paper(textsize = 25) + 
+    scale_color_manual(values = c("grey", "darkgreen")) + 
+    xlab("Fold-change Xist") + ylab("Fold-change Washout") + labs(color = "Category") + coord_fixed() + 
+    xlim(c(-1, 5)) + ylim(c(-1, 5))
+ggsave("./Plots/latest_figure/gains_reversible_irreversible_scatter_me3.pdf", width = 12, height = 7)
+
+data_long %>%
+  dplyr::filter(Chr == "chrX") %>%
+  dplyr::filter(HistoneMark == "H3K27me3") %>%
+  dplyr::filter(gene_category != "Unresponsive") %>%
+  group_by(Symbol, Chr, Start, End, Condition, HistoneMark, Allele, escape_status, gene_category) %>%
+  summarize(value_norm = mean(value_norm)) %>%
+  dplyr::filter(Allele != "Xa") %>%
+  dplyr::filter(Condition %in% c("NoDox", "21dDox", "21dD7dWO")) %>%
+  dplyr::select(c("Symbol", "Chr", "Start", "End", "Condition", "escape_status", "gene_category", "value_norm")) %>%
+  pivot_wider(names_from = Condition, values_from = value_norm) %>%
+  mutate(FC_dox = log(`21dDox` + 1) - log(NoDox + 1), FC_wo = log(`21dD7dWO` + 1) - log(NoDox + 1)) %>% 
+  arrange(-FC_wo)
+
+```
+
+```{r asdasdasda}
+
+data_long_autosomes <- data_long %>% 
+  dplyr::filter(Chr != "chrX") %>%
+  group_by(Symbol, HistoneMark, Replicate, Allele) %>%
+  mutate(fold_change = log2((value_norm + 1) / (value_norm[Condition == "NoDox"] + 1))) %>%
+  mutate(Context = factor(Context, levels = c("Intergenic", "Promoter", "Genebody"))) %>%
+  mutate(Condition = factor(Condition, levels = c("NoDox", "7dDox", "7dD7dWO", "21dDox", "21dD7dWO")))
+
+data_long_autosomes %>%
+  dplyr::select(-c(size_factor, value, fold_change)) %>%
+  mutate(value_norm = log2(value_norm)) %>%
+  group_by(Symbol, Condition, Context, Allele, HistoneMark) %>%
+  summarize(value_norm = mean(value_norm)) %>% 
+  dplyr::filter(Allele != "Xa") %>% 
+  pivot_wider(names_from = HistoneMark, values_from = value_norm) %>%
+  dplyr::filter(Context != "Genebody, Promoter") -> df_plot_s9e
+
+df_plot_s9e %>%
+  ggplot(aes(x = H2AK119ubi, y = H3K27me3)) + 
+    ggdensity::geom_hdr() + 
+    facet_wrap(~Condition) + scale_fill_distiller(palette = "Blues", direction = 1) + 
+    theme(
+        axis.line = element_line(colour = "black"),
+        panel.border = element_rect(colour = "black", fill=NA, size=1), 
+        text = element_text(size = 20, color = "black"), 
+        axis.text = element_text(size = 20, color = "black"), 
+        axis.ticks = element_line(colour = 'black', size = 1), 
+        axis.ticks.length = unit(.25, "cm"))
+ggsave("./Plots/latest_figure/gains_reversible_irreversible_scatter_me3.pdf", width = 12, height = 7)
+
+# 
+# data_long_autosomes %>%
+#   group_by(HistoneMark, Condition, Context, Symbol) %>%
+#   summarize(value_norm = mean(value_norm), fold_change = mean(fold_change)) -> data_long_autosomes_processed 
+# 
+# data_long_autosomes_processed %>%
+#   dplyr::filter(Condition != "NoDox") %>%
+#   mutate(has_gain = case_when(fold_change > 2 ~ "up", fold_change < -2 ~ "down", .default = "none")) %>%
+#   group_by(HistoneMark, Condition, Context, has_gain) %>%
+#   summarize(n = n()) %>%
+#   mutate(n_total = sum(n)) %>%
+#   mutate(freq = n / n_total) %>%
+#   dplyr::filter(has_gain != "none") %>%
+#   ggplot(aes(x = Condition, y = n, fill = has_gain)) + 
+#     geom_bar(stat = "identity") + 
+#     facet_wrap(~HistoneMark + Context, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+#     theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts")
+# 
+# data_long_autosomes_processed %>%
+#   group_by(HistoneMark, Condition, Context, Symbol) %>%
+#   summarize(value_norm = mean(value_norm)) %>%
+#   ggplot(aes(x = Condition, y = value_norm)) + 
+#     geom_violin() + 
+#     stat_summary() + 
+#     facet_wrap(~HistoneMark + Context, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
+#     theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts") + scale_y_log10()
+
+```
+
+
+```{r asdasd}
+# combine source data
+
+source_data_5 <- list(df_plot_7a, df_plot_7b, df_plot_7c, df_plot_7d, 
+                      df_plot_s9c, df_plot_s9d, df_plot_s9e, df_plot_s9g, df_plot_s9h)
+saveRDS(source_data_5, "./ProcessedData/source_data/source_data_5.rds")
+
+```

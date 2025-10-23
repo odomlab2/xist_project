@@ -56,9 +56,9 @@ rowData(data) <- cbind(rowData(data)[, 1:6],
                        EscapeAnnotation2 = rowData(data[rownames(data), ])$EscapeAnnotation)
 
 ### export counts for geo: 
-counts(data) %>% rownames_to_column("Gene") %>% write_delim("../ProcessedData/geo_astrocytes/astrocytes_total_counts.csv", delim = "\t")
-counts_active(data) %>% rownames_to_column("Gene") %>% write_delim("../ProcessedData/geo_astrocytes/astrocytes_active_counts.csv", delim = "\t")
-counts_inactive(data) %>% rownames_to_column("Gene") %>% write_delim("../ProcessedData/geo_astrocytes/astrocytes_inactive_counts.csv", delim = "\t")
+counts(data) %>% rownames_to_column("Gene") %>% write_delim("../ProcessedData/geo_astrocytes/astrocytes_total_counts.txt", delim = "\t")
+counts_active(data) %>% rownames_to_column("Gene") %>% write_delim("../ProcessedData/geo_astrocytes/astrocytes_active_counts.txt", delim = "\t")
+counts_inactive(data) %>% rownames_to_column("Gene") %>% write_delim("../ProcessedData/geo_astrocytes/astrocytes_inactive_counts.txt", delim = "\t")
 
 data_before_filtering <-  data[seqnames(data) == "X", ]
 
@@ -123,7 +123,9 @@ ratios %>%
   add_column("Condition" = data_here$ConditionClean) %>%
   add_column("Sample" = data_here$SampleName) %>%
   pivot_longer(-c(Condition, Sample)) %>%
-  add_column(position = start(rowRanges(data_here[as.character(.$name), ]))) %>%
+  add_column(position = start(rowRanges(data_here[as.character(.$name), ]))) -> df_plot_s5b
+
+df_plot_s5b %>%
   ggplot(aes(Sample, y = reorder(name, position), fill = value)) + geom_tile(width = 0.9) +
     theme_paper() + theme(axis.text.x=element_text(angle = 90, hjust = 1)) + 
     theme(axis.ticks.y = element_blank()) + xlab("") + ylab("Chromosome position") + 
@@ -149,7 +151,9 @@ ratios %>%
   pivot_longer(-c(Condition, Sample)) %>%
   dplyr::filter(value > 0.1) %>%
   group_by(name) %>%
-  mutate(escape_in_clones = n() >= 8) %>% # CAVE - here we need to adjust
+  mutate(escape_in_clones = n() >= 8) -> df_plot_s5c
+
+df_plot_s5c %>% # CAVE - here we need to adjust
   ggplot(aes(x = Sample, fill = escape_in_clones)) + geom_bar() + theme_paper() + 
     theme(axis.text.x=element_text(angle = 45, hjust = 1)) + xlab("") + ylab("Number of genes with d-score > 0.1") + 
     scale_fill_manual(values = c("grey", "darkred"), name = "Escape in all samples")
@@ -164,7 +168,9 @@ ratios %>%
   group_by(name) %>%
   mutate(escape_in_clones = n() >= 8) %>%
   add_column(escape_group = rowData(data[.$name, ])$EscapeAnnotation) %>%
-  dplyr::filter(!is.na(escape_group)) %>%
+  dplyr::filter(!is.na(escape_group)) -> df_plot_s5d
+
+df_plot_s5d %>%
   ggplot(aes(x = Sample, fill = escape_in_clones)) + geom_bar() + theme_paper() + 
     theme(axis.text.x=element_text(angle = 45, hjust = 1)) + xlab("") + ylab("Number of genes with d-score > 0.1") + 
     scale_fill_manual(values = c("grey", "darkred"), name = "Escape in all clones") + facet_wrap(~escape_group)
@@ -205,6 +211,7 @@ data.frame(
 ) %>%
   mutate(Expression = Expression / mean(Expression[Condition == "3d no dox"])) -> xist_data
 
+
 xist_data %>%
   ggplot(aes(x = Condition, y = Expression)) + 
     stat_summary(stat = "mean", geom = "bar", fill = "grey", col = "black") + 
@@ -222,6 +229,8 @@ data.frame(
   dplyr::filter(!Condition %in% c("3d dox + washout", "7d dox + washout")) %>%
   mutate(Condition = factor(Condition, levels = c("7d dox", "7d no dox", "3d dox", "3d no dox"))) %>%
   mutate(Expression = Expression / mean(Expression[Condition == "3d no dox"])) -> xist_plot_data
+
+xist_plot_data -> df_plot_2c
 
 xist_plot_data %>%
   ggplot(aes(x = Condition, y = Expression)) + 
@@ -286,9 +295,12 @@ to_plot %>%
   summarize(value = mean(value)) %>%
   add_column(escape_status = unlist(rowData(data_here)[match(.$name, rownames(data_here)), ]$EscapeAnnotation)) %>%
   pivot_wider(names_from = Condition, values_from = value) %>%
+  ungroup() %>%
+  arrange(as.character(name)) %>% 
   write.csv("../ProcessedData/dscores_astrocytes_treatment.csv")
 
 # Also do this reordering
+to_plot -> df_plot_2d
 p1 <- to_plot %>%
   group_by(Condition, name, position) %>%
   summarize(value = mean(value)) %>%
@@ -346,7 +358,9 @@ ratios[consistent_escapees, ] %>%
   # mutate(Condition = factor(Condition, levels = (c("Control", paste0("Dox (", c(3, 7, 14, 21), " days)"))))) %>%
   add_column(escape_status = unlist(rowData(data_here)[match(.$name, rownames(data_here)), ]$EscapeAnnotation)) %>%
   mutate(escape_status = factor(escape_status, names(escape_colors))) %>%
-  dplyr::filter(!is.na(escape_status)) %>%
+  dplyr::filter(!is.na(escape_status)) -> df_plot_s5f
+
+df_plot_s5f %>%
   group_by(Condition, name, escape_status) %>%
   summarize(value = mean(value)) %>%
   dplyr::filter(Condition %in% c("3d no dox", "3d dox", "7d no dox", "7d dox")) %>%
@@ -360,6 +374,12 @@ ratios[consistent_escapees, ] %>%
     labs(fill = "Escape Category") + xlab("") + coord_flip()
 ggsave("../Figures/FiguresAstrocytes/astrocyte_escapee_silencing_boxplots.pdf", width = 9, height = 6)
 
+rename_conditions <- list(
+  "3d no dox" = "Control (3d)", 
+  "3d dox" = "Dox (3d)", 
+  "7d no dox" = "Control (7d)", 
+  "7d dox" = "Control (7d)"
+)
 ratios[consistent_escapees, ] %>%
   t() %>% data.frame(check.names = F) %>%
   add_column("Condition" = data_here$ConditionClean) %>%
@@ -380,12 +400,13 @@ ratios[consistent_escapees, ] %>%
   setNames(tolower(gsub("\\.","", names(.)))) %>%
   dplyr::filter((condition1 != condition4) & (escape_status2 == escape_status5)) %>%
   rowwise() %>%
+  mutate(condition1 = sort(c(condition1, condition4))[1], condition4 = sort(c(condition1, condition4))[2]) %>% dplyr::filter(condition1 != condition4) %>%
   mutate(pvals = wilcox.test(values3, values6)$p.value, paired = T) %>%
   ungroup() %>%
   mutate(padj = p.adjust(pvals, method = "BH")) %>% 
   dplyr::select(-c("values3", "values6")) %>% 
-  dplyr::select(c("condition1", "condition4", "escape_status5", "pvals", "padj")) -> pval_results
-
+  dplyr::select(c("condition1", "condition4", "escape_status5", "pvals", "padj")) %>%
+  mutate(condition1 = unlist(rename_conditions[condition1]), condition4 = unlist(rename_conditions[condition4])) -> pval_results
 write.csv(pval_results, "../ProcessedData/pvals_figs5f.csv")
 
 # ggsave("./FiguresIllustrator/Fig1/escapee_silencing_boxplots.pdf", width = 9, height = 6)
@@ -415,7 +436,9 @@ ratios[consistent_escapees, ] %>%
   mutate(escape_status = factor(escape_status, names(escape_colors))) %>%
   dplyr::filter(!is.na(escape_status)) %>%
   dplyr::filter(Condition %in% c("Astro_no_dox3", "Astro_dox3", "Astro_no_dox7", "Astro_dox7")) %>%
-  mutate(Condition = factor(Condition, levels = (c("Astro_no_dox3", "Astro_dox3", "Astro_no_dox7", "Astro_dox7")))) %>%
+  mutate(Condition = factor(Condition, levels = (c("Astro_no_dox3", "Astro_dox3", "Astro_no_dox7", "Astro_dox7")))) -> df_plot_s5e
+
+df_plot_s5e %>%
   ggplot(aes(x = Condition, y = value, fill = Replicate)) + 
     geom_boxplot(col = "black", outlier.color = "grey", position = position_dodge2(preserve = "single")) + 
     theme_paper() + ylab("ASE (d-score)") + 
@@ -504,6 +527,7 @@ table(plot_here$Astrocyte > .1, plot_here$NPC > .1) %>% fisher.test()
 #   dplyr::filter(Astrocyte > .1 & e6_set) %>%
 #   dplyr::filter(name != "Xist") %>% nrow()
 
+plot_here -> df_plot_2e_1
 plot_here %>% {
     ggplot(data = ., aes(x = NPC, y = Astrocyte, fill = escape_status)) + 
       geom_point(pch = 21, size = 4) +
@@ -529,7 +553,9 @@ ratios[esacpe_set, ] %>%
   mutate(escape_status = factor(escape_status, names(escape_colors))) %>%
   dplyr::filter(Condition == "Astro_dox3") %>%
   pivot_wider(names_from = CellType, values_from = mean) %>%
-  dplyr::filter(!is.na(escape_status)) %>% {
+  dplyr::filter(!is.na(escape_status)) -> df_plot_2e_2
+
+df_plot_2e_2 %>% {
     ggplot(data = ., aes(x = NPC, y = Astrocyte, fill = escape_status)) + 
       geom_point(pch = 21, size = 4) +
       theme_paper() + ylab("ASE (d-score)") + 
@@ -550,7 +576,9 @@ ratios[esacpe_set, ] %>%
   mutate(escape_status = factor(escape_status, names(escape_colors))) %>%
   dplyr::filter(Condition == "Astro_dox7") %>%
   pivot_wider(names_from = CellType, values_from = mean) %>%
-  dplyr::filter(!is.na(escape_status)) %>% {
+  dplyr::filter(!is.na(escape_status)) -> df_plot_2e_3
+
+df_plot_2e_3 %>% {
     ggplot(data = ., aes(x = NPC, y = Astrocyte, fill = escape_status)) + 
       geom_point(pch = 21, size = 4) +
       theme_paper() + ylab("ASE (d-score)") + 
@@ -560,6 +588,12 @@ ratios[esacpe_set, ] %>%
       # ggrepel::geom_text_repel(aes(label = name), data = . %>% dplyr::filter(abs(NPC - Astrocyte) > 0.15)) + 
   }
 ggsave("../Figures/FiguresAstrocytes/astro_npc_compare_7d_escape.pdf", width = 9, height = 6)
+
+df_plot_2e <- rbind(
+  cbind(df_plot_2e_1, "Condition" = "Control"), 
+  cbind(df_plot_2e_2, "Condition" = "3d dox"), 
+  cbind(df_plot_2e_3, "Condition" = "7d dox")
+)
 
 ratios[esacpe_set, ] %>%
   t() %>% data.frame() %>%
@@ -690,6 +724,8 @@ data_text_3 <- total_results %>%
   pivot_wider(names_from = hit_genes, values_from = n_genes, values_fill = 0) %>%
   mutate(total = total + n_genes)
 
+total_results -> df_plot_s5h
+  
 total_results %>% 
   ggplot(aes(x = Treatment / Control)) + geom_histogram(aes(fill = p.adjust(pvalue) < 0.05), col = "black", alpha = 0.5) + 
     facet_wrap(~factor(Timepoint, c("3d", "7d")),  nrow = 1) + 
@@ -759,6 +795,8 @@ ggsave("../Figures/FiguresAstrocytes/astrocyte_escape_deseq_analysis.pdf", width
 df_combined <- rbind(df_inactive, rbind(df_active, df_total))
 df_combined$genomic_position <- start(rowRanges(data[df_combined$Gene, ]))
 
+df_combined -> df_plot_s4e
+
 df_combined %>% 
   ggplot(aes(x = 1, y = reorder(Gene, genomic_position), fill = log2FoldChange)) + geom_tile(col = "black") + facet_wrap(~Status) + 
     theme_paper() + scale_fill_gradient2() + geom_text(aes(label = ifelse(padj < 0.1, ".", "")), size = 10, nudge_y = 0.7) + 
@@ -824,7 +862,9 @@ df_total <- results(deseq_total) %>%
 df_total %>%
   mutate(chr = as.character(seqnames(rowRanges(data_with_autosomes)[.$Gene]))) %>%
   dplyr::filter(chr != "X") %>%
-  dplyr::filter(!is.na(padj)) %>%
+  dplyr::filter(!is.na(padj)) -> df_plot_s3j
+
+df_plot_s3j %>%
   ggplot(aes(x = baseMean, y = log2FoldChange, col = padj < 0.1)) + geom_point() + scale_x_log10() + 
     xlab("Mean Expression (log normalized counts)") + ylab("log2 (7d dox / Control)") + 
     theme_paper() + scale_color_manual(values = c("black", "red")) + 
@@ -907,7 +947,9 @@ res_test %>%
     cbind("cond" = "x_ratio", x_ratio),
     cbind("cond" = "auto_ratio", auto_ratio)
   ) %>% do.call("rbind", .) %>%
-  mutate(condition = factor(cond, levels = c("x_ratio", "x_ratio_shuff", "auto_ratio", "auto_ratio_shuff"))) %>%
+  mutate(condition = factor(cond, levels = c("x_ratio", "x_ratio_shuff", "auto_ratio", "auto_ratio_shuff"))) -> df_plot_s3k
+ 
+df_plot_s3k %>%
   ggplot(aes(x = condition, ratio)) +
    stat_summary(geom = "bar") +
    stat_summary(geom = "errorbar", fun.data = function(x) {mean_sdl(x, mult = 1)}) + 
@@ -1021,10 +1063,22 @@ sim_data %>%
     grepl("_astro", name) ~ "Astrocyte (Real data)", 
     .default = "NPC (Real data)"
   )) %>%
-  mutate(group = factor(group, levels = c("NPC (Real data)", "Astrocyte (Real data)", "Simulated"))) %>%
+  mutate(group = factor(group, levels = c("NPC (Real data)", "Astrocyte (Real data)", "Simulated"))) -> df_plot_s5g
+  
+df_plot_s5g %>%
   ggplot(aes(x = value, col = name)) + geom_density(size = 2) + facet_wrap(~group, nrow = 3) + theme_bw(base_size = 20) + 
     xlab("Allelic Ratio") + ylab("Density") + 
     scale_color_manual(values = group_colors)
 ggsave("~/Desktop/PhD/Projects/XChromosome_Antonia_Final/Plots/FigAstrocytes/simulation.pdf")
+```
+
+```{r asdasd}
+# combine source data
+
+source_data_2 <- list(df_plot_s3j, df_plot_s3k,
+                      df_plot_s4e,
+                      df_plot_2c, df_plot_2d, df_plot_2e,
+                      df_plot_s5b, df_plot_s5c, df_plot_s5d, df_plot_s5e, df_plot_s5f, df_plot_s5g, df_plot_s5h)
+saveRDS(source_data_2, "../ProcessedData/source_data/source_data_2.rds")
 
 ```
