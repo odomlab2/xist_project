@@ -77,7 +77,6 @@ list_of_datasets <- list("Figure 1a" = export_fig1a,
 
 openxlsx::write.xlsx(list_of_datasets, file = file_export_name)
 
-
 ### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###
 # Figure S1
 ### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###
@@ -394,15 +393,14 @@ export_fig3f <- source_data_3[[9]] %>%
   dplyr::select(c("Gene", "escape_category", "Condition", "x_axis", "y_axis")) %>%
   rename(escape_category = "Escape Status", x_axis = "Allelic Ratio Control", y_axis = "Allelic Ratio Condition")
 
-list_of_datasets <- list("Figure 3b" = export_figs3b, 
-                         "Figure 3c" = export_figs3c,
-                         "Figure 3d" = export_figs3d,
-                         "Figure 3e" = export_figs3e,
-                         "Figure 3f" = export_figs3f
+list_of_datasets <- list("Figure 3b" = export_fig3b, 
+                         "Figure 3c" = export_fig3c,
+                         "Figure 3d" = export_fig3d,
+                         "Figure 3e" = export_fig3e,
+                         "Figure 3f" = export_fig3f
 )
 
 openxlsx::write.xlsx(list_of_datasets, file = file_export_name)
-
 
 ### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###### ### ###
 # Figure 6
@@ -435,13 +433,12 @@ export_fig6e <- source_data_4[[3]] %>%
   rename(name = "Timepoint", EscapeAnnotation = "Escape Status", "value" = "Allelic Ratio")
 
 export_fig6f <- source_data_4[[4]] %>%
-  dplyr::select(c("Gene", "name", "Escape", "Ratio", "reversibility_category_joint")) %>%
-  rename(name = "Timepoint", reversibility_category_joint = "Reversibility Category")
+  dplyr::select(c("Gene", "name", "Escape", "Ratio", "EscapeAnnotation.y", "reversibility_category_joint")) %>%
+  rename(name = "Timepoint", EscapeAnnotation.y = "Escape Status",reversibility_category_joint = "Reversibility Category")
 
 export_fig6g <- source_data_4[[5]] %>%
   dplyr::select(c("genes", "region_category", "reversibility_index", "halflifes_off")) %>%
   rename(genes = "Gene", region_category = "Escape Group", reversibility_index = "Reversibility", halflifes_off = "Silencing halflife")
-
 
 list_of_datasets <- list("Figure 6b" = export_fig6b, 
                          "Figure 6d" = export_fig6d, 

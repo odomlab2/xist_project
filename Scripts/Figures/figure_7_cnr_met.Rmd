@@ -373,12 +373,18 @@ data_long_x %>%
 ggsave("./Plots/latest_figure/gains_overall_met_merged.pdf", width = 20, height = 12)
 
 # escapees
+
 data_long_x %>%
   dplyr::filter(HistoneMark == "H2AK119ubi") %>%
   # dplyr::filter(Context %in% c("Promoter", "Genebody")) %>%
   dplyr::filter(!is.na(escape_status) | Context == "Intergenic") %>%
   group_by(HistoneMark, Condition, Allele, Context, Symbol) %>%
   summarize(value_norm = mean(value_norm)) -> df_plot_7c
+
+df_plot_7c %>%
+  dplyr::filter(HistoneMark == "H2AK119ubi") %>%
+  group_by(Symbol, Context) %>% summarize(n = n()) %>%
+  group_by(Context) %>% summarize(n = n())
 
 df_plot_7c %>%
   ggplot(aes(x = Condition, fill = paste0(Allele))) + 

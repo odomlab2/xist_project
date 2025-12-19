@@ -691,6 +691,9 @@ escapee_annotation <- readr::read_csv("./ProcessedData/ListOfEscapeeFromEdithLab
 symbols <- mapIds(EnsDb.Mmusculus.v79, keys = escapee_annotation$ENSEMBL_v102, keytype = "GENEID", column="SYMBOL")
 escapee_annotation$symbol <- symbols
 
+# check number of papers in the meta-analysis
+escapee_annotation[ , grepl("Status", colnames(escapee_annotation))] %>% ncol()
+
 x_genes <- genes(EnsDb.Mmusculus.v79)
 
 escapee_annotation <- escapee_annotation[escapee_annotation$ENSEMBL_v102 %in% names(x_genes), ]
@@ -758,6 +761,13 @@ escapee_annotation %>%
       annotate(geom = "rect", fill = "darkgreen", xmin = 0, xmax = 16.5, ymin = 0, ymax = 0.5, alpha = .2) + 
       annotate(geom = "rect", fill = "darkgreen", xmin = 0, xmax = 3, ymin = 0.5, ymax = 1.05, alpha = .2)
   }
+
+plot_df_s1h <- escapee_annotation %>%
+  mutate(detected = `nb of times escapee 2` + `nb of times silenced 2`) %>%
+  mutate(ratio = `nb of times escapee 2` / detected) %>%
+  dplyr::select(c(ENSEMBL_v102, symbol, detected, ratio))
+
+saveRDS(plot_df_s1h, "./ProcessedData/source_data/source_data_s1h.rds")
 
 escapee_annotation %>% dplyr::filter(detected > 0) %>% pull(final_status_2) %>% table()
 

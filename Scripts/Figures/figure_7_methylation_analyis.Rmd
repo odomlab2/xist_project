@@ -124,7 +124,8 @@ genome2.files <- sample.names[grepl("genome2", sample.names)]
 # saveRDS(myobj, "./ProcessedData/methylation_assembled.rds")
 
 #myobj <- readRDS("./ProcessedData/methylation_assembled.rds")
-myobj <- readRDS("/Volumes/Elements/xist_project/methylation/processed_data/methylation_assembled.rds")
+#myobj <- readRDS("/Volumes/Elements/xist_project/methylation/processed_data/methylation_assembled.rds")
+myobj <- readRDS("~/Desktop/PhD/from_dkfz_cluster/antonia/xist_project/ProcessedData/methylation_assembled.rds")
 myobj <- myobj[myobj$chr == "chrX", ]
 
 sample_anno <- c(paste0(gsub(".deduplicated.sorted.genome1.bismark.cov", "", basename(genome1.files)), "_inactive"),
@@ -344,13 +345,15 @@ processed_data %>%
   group_by(CpG_ID) %>%
   dplyr::filter(all(coverage[Activity == "Inactive"] > 10)) %>%
   dplyr::filter(Activity == "Inactive") %>% 
+  group_by(CpG_ID, Condition) %>%
+  summarize(beta = mean(beta)) %>%
   group_by(Condition) %>%
   summarize(betas = list(beta)) %>%
   tidyr::expand(nesting(Condition, betas), nesting(Condition, betas),  .name_repair = "unique") %>%
   setNames(tolower(gsub("\\.","", names(.)))) %>%
   dplyr::filter(condition1 != condition3) %>%
   rowwise() %>%
-  mutate(pval = wilcox.test(betas2, betas4, paired = T)$p.value) %>% 
+  mutate(pval = wilcox.test(betas2, betas4, paired = T)$p.value) %>%
   ungroup() %>%
   mutate(padj = p.adjust(pval, method = "BH")) -> testing_results
 
@@ -385,7 +388,6 @@ merged_data %>%
   pivot_longer(
     -c("chr", "start", "end", "strand", "is_expressed", "is_escaping", "gene"), 
     names_to = c("kind", "sample"), 
-    #names_transform = list(kind = gsub("[0-9]", "", .), sample = str_extract("[0-9]", .)). 
     names_pattern = "(coverage|numCs|numTs)([0-9]*)"
   ) %>%
   dplyr::filter(kind != "numTs") %>%
@@ -419,7 +421,6 @@ df_plot_s9i %>%
     geom_hline(yintercept = 0:10 / 10, linetype = "dashed", col = "grey") +
     geom_violin(position = dodge)+
     geom_boxplot(width=.1, outlier.colour=NA, position = dodge) + 
-    # stat_summary(position = dodge, fun = median, fun.min = function(x){quantile(x, 0.25)},  fun.max = function(x){quantile(x, 0.75)}) + 
     scale_fill_manual(values = c("grey", "chocolate")) + 
     theme_classic(base_size = 30) + xlab("") + ylab("Beta-value (percent methylated)") + 
     ggtitle("Average gene body methylation") + scale_y_continuous(expand = c(0, 0)) + 
@@ -959,7 +960,7 @@ expression_categories <- readRDS("~/Desktop/PhD/Projects/XChromosome_Antonia_Fin
     reversibility_ratio <= .2 ~ "Irreversible", 
   )) %>% 
   dplyr::select(c(Gene, reversibility_category)) %>% 
-  rename(genes = Gene) %>%
+  dplyr::rename(genes = Gene) %>%
   dplyr::filter(genes %in% transformed_data_2$genes)
 
 transformed_data %>% 
@@ -994,6 +995,11 @@ ggsave("./Plots/Fig_methylation/targeted_atac_promoter_reversibility.pdf", heigh
 data_plot_here %>%
   pivot_wider(names_from = name, values_from = value) %>%
   mutate(beta_diff = beta - beta_ref) -> df_plot_7h
+
+df_plot_7h %>%
+  group_by(genes, reversibility_category) %>%
+  summarize(n = n()) %>% 
+  group_by(reversibility_category) %>% summarize(n = n())
 
 df_plot_7h %>%
   ggplot(aes(x = Condition, y = beta_diff)) +

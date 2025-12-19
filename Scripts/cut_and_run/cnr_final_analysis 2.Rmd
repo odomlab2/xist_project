@@ -9,6 +9,7 @@ editor_options:
 ```{r asss}
 
 setwd(paste0(dirname(rstudioapi::getSourceEditorContext()$path)))
+setwd("../../../")
 
 library(tidyverse)
 library(DESeq2)
@@ -61,10 +62,11 @@ reorganize_sce2 <- function(sce){
   sce.output
 }
 
-setwd("~/Desktop/PhD/Projects/XChromosome_Antonia_Final//")
+# setwd("~/Desktop/PhD/Projects/XChromosome_Antonia/")
+#setwd(paste0(dirname(rstudioapi::getSourceEditorContext()$path)))
 
 # genebody counts
-#test <- readRDS("~/Desktop/Revision Antonia Paper/bg_GeneBodies_all (1).bam_allchr_E6Xist")
+#test <- readRDS("../../../cut_and_run/bg_GeneBodies_all (1).bam_allchr_E6Xist")
 test <- readRDS("./ProcessedData/cut_and_run/bg_GeneBodies_all (1).bam_allchr_E6Xist")
 test
 
@@ -72,7 +74,6 @@ data_genebodies <- reorganize_sce(test)
 data_genebodies <- data_genebodies[rowMeans(assays(data_genebodies)[["counts_reference"]] + assays(data_genebodies)[["counts_alternative"]]) > 5, ]
 
 # promoter counts
-#test <- readRDS("~/Desktop/Revision Antonia Paper/bg_promoters_-500+1000_all (1).bam_allchr_E6Xist")
 test <- readRDS("./ProcessedData/cut_and_run/bg_promoters_-500+1000_all (1).bam_allchr_E6Xist")
 test
 
@@ -129,8 +130,7 @@ saveRDS(metadata, "./ProcessedData/cnr_metadata.rds")
 ```{r asdasda}
 
 ### stratify by effects on escape: 
-# escape_results <- read_csv("./ProcessedData/figure3_d_score_differences.csv")
-escape_results <- read_csv("./ProcessedData/excel_files/figure3_d_score_differences.csv")
+escape_results <- read_csv("./ProcessedData/figure3_d_score_differences.csv")
 
 escape_results %>% 
   mutate(gene_category = case_when(
@@ -234,7 +234,6 @@ data_long_genebodies <- rbind(data_ref, data_alt) %>%
 
 rm(data_ref, data_alt)
 
-
 # add promoter counts
 data_ref = assays(data_promoters)[["counts_reference"]] %>% data.frame()
 rownames(data_ref) <- rowData(data_promoters)$gene_name
@@ -316,7 +315,6 @@ data_long_x <- data_long %>%
   mutate(Condition = factor(Condition, levels = c("NoDox", "7dDox", "7dD7dWO", "21dDox", "21dD7dWO")))
 
 data_long_x %>%
-  # dplyr::filter(Condition %in% c("NoDox", "21dDox")) %>%
   dplyr::select(-c(size_factor, value, fold_change)) %>%
   mutate(value_norm = log2(value_norm)) %>%
   group_by(Symbol, Condition, Context, Allele, HistoneMark) %>%
@@ -336,34 +334,36 @@ ggsave("./Plots/latest_figure/histone_marks_density.pdf", width = 20, height = 1
 #   dplyr::select(-c(size_factor, value, fold_change)) %>%
 #   mutate(value_norm = log2(value_norm)) %>%
 #   pivot_wider(names_from = Overlap, values_from = value_norm) %>%
-#   ggplot(aes(x = Xa, y = Xi, col = Condition)) +
-#     geom_density_2d() +
+#   ggplot(aes(x = Xa, y = Xi, col = Condition)) + 
+#     geom_density_2d() + 
 #     facet_wrap(~HistoneMark + Replicate)
 # ggsave("./Plots/latest_figure/gains_overall_ubi.pdf", width = 12, height = 12)
 
 data_long_x %>%
   dplyr::filter(HistoneMark == "H2AK119ubi") %>%
-  # group_by(Symbol, Condition, HistoneMark, Allele, Context) %>%
-  # summarize(value_norm = mean(value_norm)) %>%
-  ggplot(aes(x = Condition, fill = paste0(Allele, "_", Replicate))) + 
+  group_by(Symbol, Condition, HistoneMark, Allele, Context) %>%
+  summarize(value_norm = mean(value_norm)) %>%
+  ggplot(aes(x = Condition, fill = Allele)) + 
     geom_boxplot(aes(y = value_norm), outlier.color = NA) + 
-    scale_fill_manual(values = c("black", "darkgrey", "darkred", "red")) + 
+    scale_fill_manual(values = c("black", "red")) + 
     facet_wrap(~HistoneMark + Context, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
     theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts") + ylim(c(0, 200))
 ggsave("./Plots/latest_figure/gains_overall_ubi.pdf", width = 20, height = 12)
 
 data_long_x %>%
  dplyr::filter(HistoneMark == "H3K27me3") %>%
- ggplot(aes(x = Condition, fill = paste0(Allele, "_", Replicate))) + 
+  group_by(Symbol, Condition, HistoneMark, Allele, Context) %>%
+  summarize(value_norm = mean(value_norm)) %>%
+  ggplot(aes(x = Condition, fill = Allele)) + 
     geom_boxplot(aes(y = value_norm), outlier.color = NA) + 
-    scale_fill_manual(values = c("black", "darkgrey", "darkred", "red")) + 
+    scale_fill_manual(values = c("black", "red")) + 
     facet_wrap(~HistoneMark + Context, nrow = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
-    theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts")  + ylim(c(0, 700))
+    theme_paper() + labs(fill = "Sample") + ylab("Normalized Counts") + ylim(c(0, 400))
 ggsave("./Plots/latest_figure/gains_overall_met.pdf", width = 20, height = 12)
 
 ```
 
-
+Try with windows for intergenic, annotated promoters / enhancers for the rest
 
 ```{r assssss}
 

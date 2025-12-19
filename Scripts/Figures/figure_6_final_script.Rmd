@@ -378,7 +378,7 @@ Now we save our classification based on the 21d analysis to use in further analy
 saveRDS(df_test, "./ProcessedData/reversibility_21d.rds")
 
 ### look at number of genes by reversibility (control / washout)
-df_test -> df_plot_6e
+# df_test -> df_plot_6e
 df_test %>% 
   dplyr::select(c("Gene", "control", "nddox7_washout", "nddox14_washout", "nddox21_washout")) %>%
   mutate_at(vars(matches("dox")), list(ratio = ~ . / control)) %>% 
@@ -387,7 +387,9 @@ df_test %>%
   mutate(name = gsub("nd", "", gsub("_washout_ratio", "", name))) %>%
   mutate(name = gsub("dox", "Dox", name)) %>%
   mutate(name = factor(name, levels = paste0("Dox", c(7, 14, 21)))) %>%
-  add_column(EscapeAnnotation = rowData(data[.$Gene, ])$EscapeAnnotation) %>%
+  add_column(EscapeAnnotation = rowData(data[.$Gene, ])$EscapeAnnotation) -> df_plot_6e
+
+df_plot_6e %>%
   ggplot(aes(x = name, y = value, fill = EscapeAnnotation)) + 
     geom_boxplot(outlier.color = "black") + scale_fill_manual(values = escape_colors) + 
     theme_paper(textsize = 30) + xlab("") + ylab("Reversibility (Allelic Ratio Washout / Control)")

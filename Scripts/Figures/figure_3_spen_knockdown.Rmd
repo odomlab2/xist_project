@@ -441,7 +441,7 @@ to_plot -> df_plot_3d
 
 p1 <- to_plot %>%
   group_by(Condition, Clone, name, position, TimePoint) %>%
-  summarize(value = mean(value)) %>%
+  summarize(value = mean(value)) %>% 
   dplyr::filter(Clone == "CL30") %>%
   ggplot(aes(reorder(name, position), y = Condition, fill = value, col = value)) + geom_tile(width = 0.9) +
     scale_fill_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white") + 
@@ -492,7 +492,7 @@ to_plot %>%
 
 p1 <- to_plot %>%
   group_by(Condition, Clone, name, position, TimePoint) %>%
-  summarize(value = mean(value)) %>%
+  summarize(value = mean(value)) %>% 
   dplyr::filter(Clone == "CL31") %>%
   ggplot(aes(reorder(name, position), y = Condition, fill = value, col = value)) + geom_tile(width = 0.9) +
     scale_fill_gradient2(midpoint = 0.5, mid = "#117733", low = "#BEBEBE", high = "black", limits = c(0, 1), na.value = "white") + 
